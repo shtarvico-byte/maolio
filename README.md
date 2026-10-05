@@ -1,6 +1,6 @@
-# Chinese Vocabulary App (Vocab 中文)
+# Maolio 🐯 — Chinese Vocabulary App
 
-A personal vocabulary trainer for a learner of Mandarin Chinese, built for an Android tablet. Self-contained PWA: no backend, no build step, no login. All data lives in the browser's `localStorage`.
+A personal vocabulary trainer for a learner of Mandarin Chinese, built for an Android tablet. Self-contained PWA: no backend, no build step, no login. All data lives in the browser's `localStorage`. Tiger-themed UI.
 
 ## Run
 
