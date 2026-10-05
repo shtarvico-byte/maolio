@@ -1,6 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0284c7"/>
+  <rect width="512" height="512" rx="96" fill="#e88504"/>
+  <rect x="0" y="0" width="32" height="512" fill="#2b1608"/>
+  <rect x="64" y="0" width="32" height="512" fill="#2b1608"/>
+  <rect x="128" y="0" width="32" height="512" fill="#2b1608"/>
+  <rect x="192" y="0" width="32" height="512" fill="#2b1608"/>
+  <rect x="256" y="0" width="32" height="512" fill="#2b1608"/>
+  <rect x="320" y="0" width="32" height="512" fill="#2b1608"/>
+  <rect x="384" y="0" width="32" height="512" fill="#2b1608"/>
+  <rect x="448" y="0" width="32" height="512" fill="#2b1608"/>
   <text x="256" y="256" text-anchor="middle" dominant-baseline="central"
         font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif"
-        font-size="280" font-weight="700" fill="#ffffff">学</text>
+        font-size="260" font-weight="700" fill="#fffaf0">学</text>
 </svg>

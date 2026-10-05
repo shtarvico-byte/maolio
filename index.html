@@ -3,34 +3,36 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0284c7">
+<meta name="theme-color" content="#e88504">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <title>Chinese Vocabulary App</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --theme: #0284c7;
-    --theme-dark: #0369a1;
-    --bg: #f1f5f9;
-    --card: #ffffff;
-    --text: #0f172a;
-    --muted: #64748b;
-    --border: #cbd5e1;
-    --danger: #dc2626;
-    --hl-bg: #fef9c3;
-    --hl-border: #eab308;
+    --theme: #e88504;
+    --theme-dark: #b45309;
+    --bg: #fdf3e0;
+    --card: #fffaf0;
+    --text: #2b1608;
+    --muted: #8a6a4f;
+    --border: #e6c9a3;
+    --danger: #b91c1c;
+    --hl-bg: #fef3c7;
+    --hl-border: #d97706;
+    --stripe: #2b1608;
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg);
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 34px, rgba(232,133,4,.05) 34px, rgba(232,133,4,.05) 40px);
     color: var(--text);
     min-height: 100vh;
     display: flex;
     flex-direction: column;
   }
   header {
-    background: var(--theme);
+    background: repeating-linear-gradient(90deg, var(--theme) 0 26px, var(--stripe) 26px 32px);
     color: #fff;
     padding: 12px 16px;
     display: flex;
@@ -40,8 +42,12 @@
     position: sticky;
     top: 0;
     z-index: 10;
+    border-bottom: 3px solid var(--stripe);
   }
-  header h1 { font-size: 1.25rem; flex: 1; }
+  header h1 {
+    font-size: 1.25rem; flex: 1;
+    text-shadow: 0 1px 2px rgba(0,0,0,.5);
+  }
   .tabs { display: flex; gap: 8px; }
   .tab-btn {
     background: rgba(255,255,255,.2);
@@ -75,8 +81,8 @@
   .btn:disabled { opacity: .4; cursor: default; }
   table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   th, td { border: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: middle; }
-  th { background: #e0f2fe; color: var(--theme-dark); font-size: .95rem; padding: 10px; }
-  td input {
+  th { background: #fde4bd; color: var(--theme-dark); font-size: .95rem; padding: 10px; }
+  td input, td textarea {
     width: 100%;
     border: none;
     font-size: 1.05rem;
@@ -85,7 +91,15 @@
     outline: none;
     min-height: 44px;
   }
-  td input:focus { background: #e0f2fe; border-radius: 4px; }
+  td textarea {
+    font-family: inherit;
+    line-height: 1.4;
+    resize: none;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  td input:focus, td textarea:focus { background: #fde4bd; border-radius: 4px; }
   td .zh { font-size: 1.3rem; }
   .row-actions { display: flex; gap: 6px; justify-content: center; }
   .row-status { font-size: .85rem; color: var(--muted); margin-left: 12px; }
@@ -101,7 +115,8 @@
   .learn-card {
     background: var(--card);
     border-radius: 16px;
-    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    border: 3px solid var(--stripe);
+    box-shadow: 0 4px 16px rgba(43,22,8,.25);
     width: 100%;
     max-width: 640px;
     min-height: 320px;
@@ -133,8 +148,9 @@
     bottom: 16px;
     left: 50%;
     transform: translateX(-50%);
-    background: #0f172a;
+    background: #2b1608;
     color: #fff;
+    border: 2px solid var(--theme);
     border-radius: 10px;
     padding: 12px 16px;
     display: flex;
@@ -264,7 +280,7 @@ function renderTable() {
     tdHz.appendChild(inputHz);
 
     var tdNote = document.createElement("td");
-    tdNote.appendChild(cellInput(row, "note", "note"));
+    tdNote.appendChild(noteTextarea(row));
 
     var tdAct = document.createElement("td");
     var wrap = document.createElement("div");
@@ -329,6 +345,26 @@ function cellInput(row, field, cls) {
   });
   input.dataset.field = field;
   return input;
+}
+
+function noteTextarea(row) {
+  var ta = document.createElement("textarea");
+  ta.rows = 1;
+  ta.value = row.note || "";
+  ta.className = "note";
+  ta.addEventListener("input", function () {
+    row.note = ta.value;
+    saveRows();
+    autoGrow(ta);
+  });
+  ta.dataset.field = "note";
+  autoGrow(ta);
+  return ta;
+}
+
+function autoGrow(ta) {
+  ta.style.height = "auto";
+  ta.style.height = ta.scrollHeight + "px";
 }
 
 function addRow() {
