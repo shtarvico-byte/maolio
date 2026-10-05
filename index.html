@@ -402,7 +402,13 @@ function translateRow(i) {
         .then(function (py) { return { hanzi: r.hanzi, pinyin: py }; })
         .catch(function () { return r; });
     })
-    .then(function (r) { applyTranslation(i, r.hanzi, r.pinyin); })
+    .then(function (r) {
+      applyTranslation(i, r.hanzi, r.pinyin);
+      return buildNote(r.hanzi);
+    })
+    .then(function (note) {
+      if (note) applyTranslation(i, null, null, note);
+    })
     .catch(function () {
       return myMemoryTranslate(q)
         .then(function (r) { applyTranslation(i, r.hanzi, null); })
@@ -412,11 +418,12 @@ function translateRow(i) {
     });
 }
 
-function applyTranslation(i, hanzi, pinyin) {
+function applyTranslation(i, hanzi, pinyin, note) {
   var row = rows[i];
   if (!row) return;
   if (hanzi && !row.hanzi) row.hanzi = hanzi;
   if (pinyin && !row.pinyin) row.pinyin = pinyin;
+  if (note && !row.note) row.note = note;
   saveRows();
   renderTable();
   setRowStatus(row.id, "");
@@ -459,6 +466,46 @@ function googlePinyin(hanzi) {
       }
       return pinyin.trim() || null;
     });
+}
+
+function charMeaning(ch) {
+  var url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=en&dt=t&q=" +
+    encodeURIComponent(ch);
+  return fetch(url)
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      var en = "";
+      for (var j = 0; j < data[0].length; j++) {
+        if (data[0][j] && data[0][j][0]) en += data[0][j][0];
+      }
+      en = en.trim();
+      return en || null;
+    });
+}
+
+function buildNote(hanzi) {
+  var chars = [];
+  var seen = {};
+  for (var i = 0; i < hanzi.length; i++) {
+    var ch = hanzi[i];
+    if (/[\u4e00-\u9fff]/.test(ch) && !seen[ch]) {
+      seen[ch] = true;
+      chars.push(ch);
+    }
+  }
+  if (!chars.length) return Promise.resolve(null);
+  return Promise.all(chars.map(charMeaning))
+    .then(function (meanings) {
+      var parts = [];
+      for (var j = 0; j < chars.length; j++) {
+        if (meanings[j]) parts.push(chars[j] + " = " + meanings[j]);
+      }
+      return parts.join(" · ") || null;
+    })
+    .catch(function () { return null; });
 }
 
 function myMemoryTranslate(q) {
