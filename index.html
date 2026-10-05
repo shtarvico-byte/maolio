@@ -396,6 +396,12 @@ function translateRow(i) {
   setRowStatus(row.id, "…");
 
   googleTranslate(q)
+    .then(function (r) {
+      if (r.pinyin) return r;
+      return googlePinyin(r.hanzi)
+        .then(function (py) { return { hanzi: r.hanzi, pinyin: py }; })
+        .catch(function () { return r; });
+    })
     .then(function (r) { applyTranslation(i, r.hanzi, r.pinyin); })
     .catch(function () {
       return myMemoryTranslate(q)
@@ -416,8 +422,12 @@ function applyTranslation(i, hanzi, pinyin) {
   setRowStatus(row.id, "");
 }
 
+function hasHan(text) {
+  return /[\u4e00-\u9fff]/.test(text);
+}
+
 function googleTranslate(q) {
-  var url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&dt=rm&q=" +
+  var url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" +
     encodeURIComponent(q);
   return fetch(url)
     .then(function (res) {
@@ -429,13 +439,25 @@ function googleTranslate(q) {
       for (var i = 0; i < data[0].length; i++) {
         if (data[0][i] && data[0][i][0]) hanzi += data[0][i][0];
       }
+      if (!hasHan(hanzi)) throw new Error("no chinese result");
+      return { hanzi: hanzi, pinyin: null };
+    });
+}
+
+function googlePinyin(hanzi) {
+  var url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=en&dt=t&dt=rm&q=" +
+    encodeURIComponent(hanzi);
+  return fetch(url)
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
       var pinyin = "";
-      var rm = data[0].length ? data[0][0] : null;
       for (var j = 0; j < data[0].length; j++) {
-        if (data[0][j] && data[0][j][3]) { pinyin = data[0][j][3]; break; }
+        if (data[0][j] && data[0][j][3]) pinyin += data[0][j][3] + " ";
       }
-      if (!hanzi) throw new Error("empty");
-      return { hanzi: hanzi, pinyin: pinyin || null };
+      return pinyin.trim() || null;
     });
 }
 
@@ -449,7 +471,7 @@ function myMemoryTranslate(q) {
     })
     .then(function (data) {
       var hanzi = data && data.responseData && data.responseData.translatedText;
-      if (!hanzi) throw new Error("empty");
+      if (!hanzi || !hasHan(hanzi)) throw new Error("no chinese result");
       return { hanzi: hanzi };
     });
 }
