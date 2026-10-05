@@ -424,9 +424,20 @@ var zhVoice = null;
 function pickVoice() {
   try {
     var voices = speechSynthesis.getVoices();
-    for (var i = 0; i < voices.length; i++) {
-      if (voices[i].lang && voices[i].lang.toLowerCase().indexOf("zh") === 0) {
-        zhVoice = voices[i];
+    var prefs = ["zh-cn", "zh", "zh-hans", "zh-tw", "zh-sg"];
+    for (var p = 0; p < prefs.length; p++) {
+      for (var i = 0; i < voices.length; i++) {
+        var lang = (voices[i].lang || "").toLowerCase();
+        if (lang === prefs[p]) {
+          zhVoice = voices[i];
+          return;
+        }
+      }
+    }
+    for (var j = 0; j < voices.length; j++) {
+      var l = (voices[j].lang || "").toLowerCase();
+      if (l.indexOf("zh") === 0 && l !== "zh-yue" && l !== "zh-hk" && l !== "zh-hant-hk") {
+        zhVoice = voices[j];
         return;
       }
     }
