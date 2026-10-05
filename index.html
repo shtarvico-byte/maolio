@@ -297,7 +297,7 @@ function renderTable() {
     sayBtn.textContent = "▶";
     sayBtn.title = "Pronounce";
     sayBtn.disabled = !row.hanzi;
-    sayBtn.addEventListener("click", function () { pronounce(row.hanzi); });
+    sayBtn.addEventListener("click", function () { speakHanzi(row.hanzi, row.id); });
 
     var delBtn = document.createElement("button");
     delBtn.className = "del-btn";
@@ -549,19 +549,38 @@ function pickVoice() {
   } catch (e) { /* ignore */ }
 }
 
-function pronounce(text) {
+var ttsReady = false;
+
+function warmUpTts() {
+  try {
+    if (ttsReady || !("speechSynthesis" in window)) return;
+    var u = new SpeechSynthesisUtterance("");
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    ttsReady = true;
+  } catch (e) { /* ignore */ }
+}
+
+function speakHanzi(text, statusTarget) {
   try {
     if (!text || !("speechSynthesis" in window)) return;
-    speechSynthesis.cancel();
+    warmUpTts();
+    if (!zhVoice) pickVoice();
+    if (!zhVoice && statusTarget) {
+      setRowStatus(statusTarget, "No Chinese voice found — install it: Settings → Text-to-speech", true);
+    }
     var u = new SpeechSynthesisUtterance(text);
     u.lang = "zh-CN";
-    if (!zhVoice) pickVoice();
     if (zhVoice) u.voice = zhVoice;
     u.rate = 0.85;
-    speechSynthesis.speak(u);
+    speechSynthesis.cancel();
+    setTimeout(function () {
+      try { speechSynthesis.speak(u); } catch (e) { /* ignore */ }
+    }, 60);
   } catch (e) { /* silently ignore TTS failures */ }
 }
 if ("speechSynthesis" in window) {
+  document.addEventListener("click", warmUpTts, { once: true });
   speechSynthesis.addEventListener("voiceschanged", pickVoice);
   pickVoice();
 }
@@ -645,7 +664,7 @@ function renderLearn() {
     say.className = "btn";
     say.textContent = "▶ Pronounce";
     say.disabled = !row.hanzi;
-    say.addEventListener("click", function () { pronounce(row.hanzi); });
+    say.addEventListener("click", function () { speakHanzi(row.hanzi); });
     controls.appendChild(say);
   } else {
     controls.appendChild(show);
