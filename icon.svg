@@ -1,14 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#e88504"/>
-  <rect x="0" y="0" width="32" height="512" fill="#2b1608"/>
-  <rect x="64" y="0" width="32" height="512" fill="#2b1608"/>
-  <rect x="128" y="0" width="32" height="512" fill="#2b1608"/>
-  <rect x="192" y="0" width="32" height="512" fill="#2b1608"/>
-  <rect x="256" y="0" width="32" height="512" fill="#2b1608"/>
-  <rect x="320" y="0" width="32" height="512" fill="#2b1608"/>
-  <rect x="384" y="0" width="32" height="512" fill="#2b1608"/>
-  <rect x="448" y="0" width="32" height="512" fill="#2b1608"/>
-  <text x="256" y="256" text-anchor="middle" dominant-baseline="central"
-        font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif"
-        font-size="260" font-weight="700" fill="#fffaf0">学</text>
+  <!-- ears -->
+  <path d="M96 160 a64 64 0 0 1 128 0 l-16 56 z" fill="#2b1608"/>
+  <path d="M416 160 a64 64 0 0 0 -128 0 l16 56 z" fill="#2b1608"/>
+  <circle cx="128" cy="140" r="22" fill="#2b1608"/>
+  <circle cx="384" cy="140" r="22" fill="#2b1608"/>
+  <!-- head -->
+  <path d="M256 120 C 150 120 96 200 96 290 C 96 380 170 432 256 432 C 342 432 416 380 416 290 C 416 200 362 120 256 120 z" fill="#f5a623"/>
+  <!-- side stripes -->
+  <path d="M112 250 q30 20 34 60 q-20 8 -38 4 z" fill="#2b1608"/>
+  <path d="M400 250 q-30 20 -34 60 q20 8 38 4 z" fill="#2b1608"/>
+  <path d="M118 340 q26 26 30 62 q-24 2 -40 -14 z" fill="#2b1608"/>
+  <path d="M394 340 q-26 26 -30 62 q24 2 40 -14 z" fill="#2b1608"/>
+  <!-- forehead stripes -->
+  <rect x="244" y="150" width="24" height="90" rx="10" fill="#2b1608"/>
+  <rect x="204" y="160" width="20" height="70" rx="9" fill="#2b1608" transform="rotate(14 214 195)"/>
+  <rect x="288" y="160" width="20" height="70" rx="9" fill="#2b1608" transform="rotate(-14 298 195)"/>
+  <!-- eyes -->
+  <ellipse cx="176" cy="280" rx="34" ry="26" fill="#2b1608"/>
+  <ellipse cx="336" cy="280" rx="34" ry="26" fill="#2b1608"/>
+  <circle cx="182" cy="276" r="8" fill="#fffaf0"/>
+  <circle cx="342" cy="276" r="8" fill="#fffaf0"/>
+  <!-- muzzle -->
+  <path d="M256 320 q-70 0 -80 44 q10 44 80 44 q70 0 80 -44 q-10 -44 -80 -44 z" fill="#fffaf0"/>
+  <path d="M256 316 l-14 -22 h28 z" fill="#d96c2a"/>
+  <!-- whisker dots -->
+  <circle cx="196" cy="366" r="4" fill="#2b1608"/>
+  <circle cx="316" cy="366" r="4" fill="#2b1608"/>
+  <!-- mouth -->
+  <path d="M236 384 q20 18 40 0" stroke="#2b1608" stroke-width="8" fill="none" stroke-linecap="round"/>
 </svg>

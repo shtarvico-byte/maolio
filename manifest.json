@@ -1,7 +1,7 @@
 {
-  "name": "Chinese Vocabulary App",
-  "short_name": "Vocab 中文",
-  "description": "Personal Mandarin vocabulary trainer with hide-and-reveal learn mode",
+  "name": "Maolio — Chinese Vocabulary App",
+  "short_name": "Maolio",
+  "description": "Maolio — personal Mandarin vocabulary trainer with hide-and-reveal learn mode",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#f1f5f9",
