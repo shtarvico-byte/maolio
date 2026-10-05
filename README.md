@@ -24,8 +24,9 @@ A personal vocabulary trainer for a learner of Mandarin Chinese, built for an An
 
 ## Features
 
-- **Table tab** — Excel-like editable vocabulary table (English | Pinyin | 汉字 | Memory help). Every edit is saved immediately to `localStorage` (key `zht-vocab-table-v1`); no save button. "+ Add row" appends an empty row; ✕ deletes a row.
-- **Learn tab** — hide-and-reveal flashcards: English on the front, "Show answer" reveals hanzi (large), pinyin, and the mnemonic in a highlighted box. Prev/Next navigation, "Card X of Y" counter, only rows with non-empty English participate.
+- **Table tab** — Excel-like editable vocabulary table (English | Pinyin | 汉字 | Memory help). Every edit is saved immediately to `localStorage`; no save button. "+ Add row" appends an empty row; ✕ deletes a row. A "+ Row" button in the top bar is always visible, even in Learn mode.
+- **Multiple sheets** — keep separate vocabulary decks (e.g. per HSK level). Use the dropdown to switch, "+ New sheet" to create one (asks for a name), ✎ Rename to rename it. All sheets live in `localStorage` key `zht-vocab-sheets-v1`; data from the old single-list format is migrated automatically.
+- **Learn tab** — hide-and-reveal flashcards: English on the front, a 🔊 button to hear the Chinese word, "Show answer" reveals hanzi (large), pinyin, and the mnemonic in a highlighted box. Prev/Next navigation, "Card X of Y" counter, only rows with non-empty English participate.
 - **Auto-translate (译)** — triggered by Enter in the English cell or the 译 button. Google translate gtx endpoint first (hanzi + romanized pinyin), MyMemory API as fallback (hanzi only). Fills only empty cells — never overwrites manual input. Shows "…" while loading and a clear error message on failure.
 - **Pronunciation (▶)** — per row and on the revealed learn card. Web Speech API, `zh-CN` voice, rate 0.85. Disabled when hanzi is empty; failures are silently ignored.
 - **Data safety** — storage reads/writes wrapped in try/catch; corrupted storage re-seeds the 3 starter rows (你好 / hello, 谢谢 / thank you, 水 / water) instead of crashing.
@@ -36,15 +37,26 @@ Any static host works: GitHub Pages, Netlify Drop, Cloudflare Pages. Just upload
 
 ## Storage
 
-Data model (JSON array in `localStorage["zht-vocab-table-v1"]`):
+Data model (sheets in `localStorage["zht-vocab-sheets-v1"]`, migrated from the legacy `zht-vocab-table-v1` single list):
 
 ```json
 {
-  "id": "r-1696320000000",
-  "en": "hello",
-  "pinyin": "nǐ hǎo",
-  "hanzi": "你好",
-  "note": "你 = 'you' (person walking) + 好 = 'good' (woman + child)"
+  "sheets": [
+    {
+      "id": "s-main",
+      "name": "Sheet 1",
+      "rows": [
+        {
+          "id": "r-1696320000000",
+          "en": "hello",
+          "pinyin": "nǐ hǎo",
+          "hanzi": "你好",
+          "note": "你 = 'you' (person walking) + 好 = 'good' (woman + child)"
+        }
+      ]
+    }
+  ],
+  "currentSheetId": "s-main"
 }
 ```
 
