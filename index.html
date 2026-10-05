@@ -60,6 +60,17 @@
     min-height: 44px;
   }
   .tab-btn.active { background: #fff; color: var(--theme-dark); font-weight: 700; }
+  .new-row-btn { background: #fffaf0; color: var(--theme-dark); font-weight: 700; }
+  .sheet-select {
+    font-size: 1rem;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #fffaf0;
+    color: var(--text);
+    min-height: 44px;
+    max-width: 40vw;
+  }
   main { flex: 1; padding: 16px; max-width: 1000px; width: 100%; margin: 0 auto; }
 
   /* Table tab */
@@ -129,6 +140,12 @@
     text-align: center;
   }
   .en-big { font-size: 2.6rem; font-weight: 700; }
+  .say-card {
+    font-size: 1.6rem;
+    padding: 10px 26px;
+    border-radius: 50px;
+    background: var(--theme);
+  }
   .hanzi-big { font-size: 4.5rem; line-height: 1.2; }
   .pinyin-big { font-size: 1.6rem; color: var(--theme-dark); }
   .note-box {
@@ -183,11 +200,15 @@
     <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
     <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
   </nav>
+  <button class="tab-btn new-row-btn" onclick="addRowFromAnywhere()" title="Add a new vocabulary row">+ Row</button>
 </header>
 <main>
   <section id="view-table">
     <div class="toolbar">
       <button class="btn" onclick="addRow()">+ Add row</button>
+      <select id="sheet-select" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
+      <button class="btn secondary" onclick="newSheet()" title="Create a new sheet">+ New sheet</button>
+      <button class="btn secondary" onclick="renameSheet()" title="Rename the current sheet">✎ Rename</button>
       <span class="count-badge" id="table-count"></span>
     </div>
     <table>
@@ -218,6 +239,7 @@
 "use strict";
 
 var STORAGE_KEY = "zht-vocab-table-v1";
+var SHEETS_KEY = "zht-vocab-sheets-v1";
 var SEED_ROWS = [
   { id: "r-seed-1", en: "hello", pinyin: "nǐ hǎo", hanzi: "你好",
     note: "你 = 'you' (person walking) + 好 = 'good' (woman + child)" },
@@ -228,31 +250,119 @@ var SEED_ROWS = [
 ];
 
 var rows = [];
+var sheets = [];          /* [{ id, name, rows: [...] }, ...] */
+var currentSheetId = null;
 var learnIndex = 0;
 var learnRevealed = false;
 
-function loadRows() {
+function loadSheets() {
+  var migrated = false;
   try {
-    var raw = localStorage.getItem(STORAGE_KEY);
+    var raw = localStorage.getItem(SHEETS_KEY);
     var parsed = raw ? JSON.parse(raw) : null;
-    if (Array.isArray(parsed)) {
-      rows = parsed.filter(function (r) { return r && typeof r === "object"; });
+    if (parsed && Array.isArray(parsed.sheets) && parsed.sheets.length &&
+        parsed.sheets.every(function (s) { return s && typeof s === "object" && Array.isArray(s.rows); })) {
+      sheets = parsed.sheets;
+      currentSheetId = parsed.currentSheetId || sheets[0].id;
+      if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+      rows = sheetById(currentSheetId).rows;
       return;
     }
-  } catch (e) { /* corrupted storage — re-seed */ }
-  rows = SEED_ROWS.map(function (r) { return Object.assign({}, r); });
-  saveRows();
+  } catch (e) { /* corrupted — fall through to migration/seed */ }
+
+  /* migration: single-list format (or nothing) -> one sheet */
+  var legacy = null;
+  try {
+    var oldRaw = localStorage.getItem(STORAGE_KEY);
+    var oldParsed = oldRaw ? JSON.parse(oldRaw) : null;
+    if (Array.isArray(oldParsed) && oldParsed.length) {
+      legacy = oldParsed.filter(function (r) { return r && typeof r === "object"; });
+    }
+  } catch (e) { legacy = null; }
+
+  if (legacy) {
+    sheets = [{ id: "s-main", name: "Sheet 1", rows: legacy }];
+    migrated = true;
+  } else {
+    sheets = [{ id: "s-main", name: "Sheet 1", rows: SEED_ROWS.map(function (r) { return Object.assign({}, r); }) }];
+    migrated = true;
+  }
+  currentSheetId = "s-main";
+  rows = sheets[0].rows;
+  if (migrated) saveSheets();
 }
 
-function saveRows() {
+function sheetById(id) {
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].id === id) return sheets[i];
+  }
+  return sheets[0];
+}
+
+function saveSheets() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    localStorage.setItem(SHEETS_KEY, JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId }));
   } catch (e) {
     try {
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+      localStorage.removeItem(SHEETS_KEY);
+      localStorage.setItem(SHEETS_KEY, JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId }));
     } catch (e2) { /* storage unavailable — app keeps working in memory */ }
   }
+}
+
+/* rows is always a live reference into the current sheet */
+function saveRows() {
+  saveSheets();
+}
+
+function switchSheet(id) {
+  var s = sheetById(id);
+  if (!s) return;
+  currentSheetId = s.id;
+  rows = s.rows;
+  learnIndex = 0;
+  learnRevealed = false;
+  saveSheets();
+  renderSheetSelect();
+  renderTable();
+  renderLearn();
+}
+
+function newSheet() {
+  var name = prompt("Name for the new sheet:", "Sheet " + (sheets.length + 1));
+  if (name === null) return;
+  name = (name || "").trim() || ("Sheet " + (sheets.length + 1));
+  var sheet = { id: "s-" + Date.now(), name: name, rows: [] };
+  sheets.push(sheet);
+  switchSheet(sheet.id);
+}
+
+function renameSheet() {
+  var s = sheetById(currentSheetId);
+  var name = prompt("Rename sheet:", s.name);
+  if (name === null) return;
+  name = (name || "").trim() || s.name;
+  s.name = name;
+  saveSheets();
+  renderSheetSelect();
+}
+
+function renderSheetSelect() {
+  var sel = document.getElementById("sheet-select");
+  if (!sel) return;
+  sel.innerHTML = "";
+  sheets.forEach(function (s) {
+    var opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.name;
+    if (s.id === currentSheetId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function addRowFromAnywhere() {
+  switchTab("table");
+  addRow();
 }
 
 /* ---------- Table rendering ---------- */
@@ -616,6 +726,15 @@ function renderLearn() {
   en.textContent = row.en;
   card.appendChild(en);
 
+  if (row.hanzi) {
+    var sayCard = document.createElement("button");
+    sayCard.className = "btn say-card";
+    sayCard.textContent = "🔊";
+    sayCard.title = "Read the Chinese word aloud";
+    sayCard.addEventListener("click", function () { speakHanzi(row.hanzi); });
+    card.appendChild(sayCard);
+  }
+
   if (learnRevealed) {
     if (row.hanzi) {
       var hz = document.createElement("div");
@@ -735,7 +854,8 @@ function watchForUpdates() {
 
 /* ---------- Init ---------- */
 
-loadRows();
+loadSheets();
+renderSheetSelect();
 renderTable();
 watchForUpdates();
 </script>
