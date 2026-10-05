@@ -128,10 +128,39 @@
   .learn-nav { display: flex; gap: 12px; align-items: center; }
   .card-counter { color: var(--muted); font-size: 1rem; }
   .empty-state { color: var(--muted); font-size: 1.2rem; text-align: center; padding: 40px 0; }
+  #update-banner {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0f172a;
+    color: #fff;
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    z-index: 100;
+    max-width: calc(100vw - 32px);
+  }
+  #update-banner button {
+    background: var(--theme);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: .95rem;
+    cursor: pointer;
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
+<div id="update-banner" hidden>
+  <span>A new version is available.</span>
+  <button onclick="applyUpdate()">Reload</button>
+</div>
 <header>
   <h1>📚 Vocab 中文</h1>
   <nav class="tabs">
@@ -530,15 +559,50 @@ function switchTab(tab) {
   }
 }
 
+/* ---------- Service worker / updates ---------- */
+
+var waitingWorker = null;
+
+function onWaitingWorker(reg) {
+  if (!reg.waiting) return;
+  waitingWorker = reg.waiting;
+  var banner = document.getElementById("update-banner");
+  if (banner) banner.hidden = false;
+}
+
+function applyUpdate() {
+  try {
+    if (waitingWorker) {
+      waitingWorker.postMessage("skip-waiting");
+      return;
+    }
+  } catch (e) { /* fall through to reload */ }
+  window.location.reload();
+}
+
+function watchForUpdates() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    navigator.serviceWorker.register("sw.js").then(function (reg) {
+      onWaitingWorker(reg);
+      reg.addEventListener("updatefound", function () {
+        var installing = reg.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", function () {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            onWaitingWorker(reg);
+          }
+        });
+      });
+    }).catch(function (e) { /* registration failure — app still works */ });
+  } catch (e) { /* ignore */ }
+}
+
 /* ---------- Init ---------- */
 
 loadRows();
 renderTable();
-if ("serviceWorker" in navigator) {
-  try {
-    navigator.serviceWorker.register("sw.js");
-  } catch (e) { /* ignore */ }
-}
+watchForUpdates();
 </script>
 </body>
 </html>

@@ -1,4 +1,6 @@
 var CACHE_NAME = "zht-vocab-v1";
+/* Bump the version suffix (v1 → v2 → …) on every release so clients drop the old
+   cache and fetch the updated app shell. */
 var APP_SHELL = [
   "index.html",
   "manifest.json",
@@ -17,6 +19,12 @@ self.addEventListener("install", function (event) {
   );
 });
 
+self.addEventListener("message", function (event) {
+  if (event.data === "skip-waiting") {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("activate", function (event) {
   event.waitUntil(
     caches.keys().then(function (keys) {
@@ -27,6 +35,17 @@ self.addEventListener("activate", function (event) {
       return self.clients.claim();
     })
   );
+});
+
+self.addEventListener("controllerchange", function () {
+  // only reload once to avoid loops with multiple controller changes
+  if (self.__reloaded) return;
+  self.__reloaded = true;
+  self.clients.matchAll().then(function (clients) {
+    clients.forEach(function (client) {
+      client.navigate(client.url);
+    });
+  });
 });
 
 self.addEventListener("fetch", function (event) {

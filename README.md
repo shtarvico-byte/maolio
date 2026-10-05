@@ -13,6 +13,7 @@ A personal vocabulary trainer for a learner of Mandarin Chinese, built for an An
   ```
 
 - **Offline**: after the first load the service worker caches the app shell (`index.html`, `manifest.json`, icons), so the app works fully offline. Only the auto-translate feature requires internet.
+- **Updates**: when a new version is deployed, the app shows a "A new version is available — Reload" banner. Clicking Reload activates the new version immediately. When releasing an update yourself, bump the cache version in `sw.js` (`CACHE_NAME`, e.g. `zht-vocab-v1` → `zht-vocab-v2`) so clients drop the old cache.
 
 ## Install (Android tablet)
 
