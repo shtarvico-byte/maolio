@@ -75,6 +75,33 @@
 
   /* Table tab */
   .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: #fff;
+    border: 1px solid var(--theme);
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.2);
+    min-width: 220px;
+    padding: 6px;
+    z-index: 50;
+  }
+  [hidden] { display: none !important; }
+  .menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    color: var(--text);
+    border: none;
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .menu button:active { background: #fde4bd; }
   .btn {
     background: var(--theme);
     color: #fff;
@@ -237,9 +264,15 @@
     <div class="toolbar">
       <button class="btn" onclick="addRow()">+ Add row</button>
       <select id="sheet-select" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
-      <button class="btn secondary" onclick="newSheet()" title="Create a new sheet">+ New sheet</button>
-      <button class="btn secondary" onclick="renameSheet()" title="Rename the current sheet">✎ Rename</button>
-      <button class="btn secondary" onclick="restoreBackup()" title="Restore your sheets from an automatic backup">↺ Restore backup</button>
+      <div class="menu-wrap">
+        <button class="btn secondary" onclick="toggleMenu(event)" title="Sheet and app actions">☰ Menu</button>
+        <div id="app-menu" class="menu" hidden>
+          <button onclick="menuAction(newSheet)">+ New sheet</button>
+          <button onclick="menuAction(renameSheet)">✎ Rename sheet</button>
+          <button onclick="menuAction(restoreBackup)">↺ Restore backup</button>
+          <button id="menu-update" onclick="menuAction(checkForUpdate)">⤓ Update app</button>
+        </div>
+      </div>
       <span class="count-badge" id="table-count"></span>
     </div>
     <table>
@@ -1017,6 +1050,70 @@ function switchTab(tab) {
 
 /* ---------- Service worker / updates ---------- */
 
+/* ---------- App menu ---------- */
+
+function toggleMenu(ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  var menu = document.getElementById("app-menu");
+  if (menu) menu.hidden = !menu.hidden;
+  syncUpdateMenuItem();
+}
+
+function closeMenu() {
+  var menu = document.getElementById("app-menu");
+  if (menu) menu.hidden = true;
+}
+
+function menuAction(fn) {
+  closeMenu();
+  fn();
+}
+
+/* Reflect whether an update is already waiting in the menu item label. */
+function syncUpdateMenuItem() {
+  var item = document.getElementById("menu-update");
+  if (item) item.textContent = waitingWorker ? "⤓ Update app (ready!)" : "⤓ Update app";
+}
+
+function checkForUpdate() {
+  if (waitingWorker) {
+    applyUpdate();
+    return;
+  }
+  if (!("serviceWorker" in navigator)) {
+    window.location.reload();
+    return;
+  }
+  try {
+    navigator.serviceWorker.register("sw.js").then(function (reg) {
+      return reg.update().then(function () {
+        if (reg.waiting) {
+          applyUpdate();
+          return;
+        }
+        var installing = reg.installing;
+        if (installing) {
+          installing.addEventListener("statechange", function () {
+            if (installing.state === "installed" && navigator.serviceWorker.controller) {
+              applyUpdate();
+            }
+          });
+          alert("A new version is downloading — it will activate in a moment. Open the menu again to finish updating.");
+          return;
+        }
+        alert("You already have the latest version.");
+      });
+    }).catch(function () { window.location.reload(); });
+  } catch (e) {
+    window.location.reload();
+  }
+}
+
+document.addEventListener("click", function (ev) {
+  var menu = document.getElementById("app-menu");
+  if (menu && !menu.hidden && !menu.parentNode.contains(ev.target)) closeMenu();
+});
+
 var waitingWorker = null;
 
 function onWaitingWorker(reg) {
@@ -1024,6 +1121,7 @@ function onWaitingWorker(reg) {
   waitingWorker = reg.waiting;
   var banner = document.getElementById("update-banner");
   if (banner) banner.hidden = false;
+  syncUpdateMenuItem();
 }
 
 function applyUpdate() {
