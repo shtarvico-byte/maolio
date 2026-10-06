@@ -272,7 +272,7 @@
   <button onclick="dismissRecovered()">OK</button>
 </div>
 <header>
-  <h1>🐯 Maolio</h1>
+  <h1><span id="app-animal">🐯</span> Maolio</h1>
   <nav class="tabs">
     <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
     <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
@@ -1088,6 +1088,8 @@ function applyTheme(name) {
   }
   var item = document.getElementById("menu-theme");
   if (item) item.textContent = currentTheme === "calico" ? "🐱 Theme: Calico cat" : "🐱 Theme: Tiger";
+  var animal = document.getElementById("app-animal");
+  if (animal) animal.textContent = currentTheme === "calico" ? "🐈" : "🐯";
   var meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", currentTheme === "calico" ? "#d98695" : "#e88504");
 }
