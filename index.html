@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#e88504">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<title>Maolio — Chinese Vocabulary</title><script src="https://accounts.google.com/gsi/client" async defer onerror="window.googleGsiFailed=true"></script>
+<title>Maolio — Chinese Vocabulary</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -21,11 +21,30 @@
     --hl-bg: #fef3c7;
     --hl-border: #d97706;
     --stripe: #2b1608;
+    --th-accent: #fde4bd;      /* table headers, focus, menu highlight */
+    --th-surface: #fffaf0;    /* inputs, new-row button */
+    --th-shadow: rgba(232,133,4,.05);
+  }
+  body.theme-calico {
+    --theme: #d98695;          /* calico ginger-rose */
+    --theme-dark: #9d5a68;
+    --bg: #f7f1ec;
+    --card: #fffaf4;
+    --text: #3a2a2e;
+    --muted: #8f7a80;
+    --border: #e3cfd6;
+    --danger: #b91c1c;
+    --hl-bg: #faeae4;
+    --hl-border: #d98695;
+    --stripe: #4a3a40;
+    --th-accent: #f6dee6;
+    --th-surface: #fffaf4;
+    --th-shadow: rgba(217,134,149,.06);
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg);
-    background-image: repeating-linear-gradient(45deg, transparent, transparent 34px, rgba(232,133,4,.05) 34px, rgba(232,133,4,.05) 40px);
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 34px, var(--th-shadow) 34px, var(--th-shadow) 40px);
     color: var(--text);
     min-height: 100vh;
     display: flex;
@@ -60,13 +79,13 @@
     min-height: 44px;
   }
   .tab-btn.active { background: #fff; color: var(--theme-dark); font-weight: 700; }
-  .new-row-btn { background: #fffaf0; color: var(--theme-dark); font-weight: 700; }
+  .new-row-btn { background: var(--th-surface); color: var(--theme-dark); font-weight: 700; }
   .sheet-select {
     font-size: 1rem;
     padding: 10px 12px;
     border-radius: 8px;
     border: 1px solid var(--border);
-    background: #fffaf0;
+    background: var(--th-surface);
     color: var(--text);
     min-height: 44px;
     max-width: 40vw;
@@ -101,7 +120,7 @@
     font-size: 1rem;
     cursor: pointer;
   }
-  .menu button:active { background: #fde4bd; }
+  .menu button:active { background: var(--th-accent); }
   .menu-sep { border: none; border-top: 1px solid var(--border); margin: 6px 4px; }
   .btn {
     background: var(--theme);
@@ -120,7 +139,7 @@
   .btn:disabled { opacity: .4; cursor: default; }
   table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   th, td { border: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: middle; }
-  th { background: #fde4bd; color: var(--theme-dark); font-size: .95rem; padding: 10px; }
+  th { background: var(--th-accent); color: var(--theme-dark); font-size: .95rem; padding: 10px; }
   td input, td textarea {
     width: 100%;
     border: none;
@@ -138,7 +157,7 @@
     white-space: pre-wrap;
     word-wrap: break-word;
   }
-  td input:focus, td textarea:focus { background: #fde4bd; border-radius: 4px; }
+  td input:focus, td textarea:focus { background: var(--th-accent); border-radius: 4px; }
   td .zh { font-size: 1.3rem; }
   .row-actions { display: flex; gap: 6px; justify-content: center; }
   .row-status { font-size: .85rem; color: var(--muted); margin-left: 12px; }
@@ -273,8 +292,10 @@
           <button onclick="menuAction(restoreBackup)">↺ Restore backup</button>
           <button id="menu-update" onclick="menuAction(checkForUpdate)">⤓ Update app</button>
           <hr class="menu-sep">
-          <button onclick="menuAction(backupToDrive)">☁ Back up to Google Drive</button>
-          <button onclick="menuAction(restoreFromDrive)">⤓ Restore from Google Drive</button>
+          <button onclick="menuAction(saveBackupToFile)">💾 Save backup to file</button>
+          <button onclick="menuAction(restoreBackupFromFile)">📂 Restore backup from file</button>
+          <hr class="menu-sep">
+          <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
       </div>
       <span class="count-badge" id="table-count"></span>
@@ -470,6 +491,7 @@ function saveSheets() {
     try { existing = localStorage.getItem(SHEETS_KEY); } catch (e) { existing = null; }
     if (existing !== snapshot) backupSheets();
     localStorage.setItem(SHEETS_KEY, snapshot);
+    scheduleAutoFileBackup();
   } catch (e) {
     try {
       localStorage.removeItem(SHEETS_KEY);
@@ -1054,6 +1076,33 @@ function switchTab(tab) {
 
 /* ---------- Service worker / updates ---------- */
 
+/* ---------- Theme (Tiger / Calico cat) ---------- */
+
+var THEME_KEY = "zht-vocab-theme";
+var currentTheme = "tiger";
+
+function applyTheme(name) {
+  currentTheme = name === "calico" ? "calico" : "tiger";
+  if (document.body.classList) {
+    document.body.classList.toggle("theme-calico", currentTheme === "calico");
+  }
+  var item = document.getElementById("menu-theme");
+  if (item) item.textContent = currentTheme === "calico" ? "🐱 Theme: Calico cat" : "🐱 Theme: Tiger";
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", currentTheme === "calico" ? "#d98695" : "#e88504");
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme === "calico" ? "tiger" : "calico");
+  try { localStorage.setItem(THEME_KEY, currentTheme); } catch (e) { /* ignore */ }
+}
+
+function loadTheme() {
+  var saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch (e) { saved = null; }
+  applyTheme(saved);
+}
+
 /* ---------- App menu ---------- */
 
 function toggleMenu(ev) {
@@ -1061,6 +1110,7 @@ function toggleMenu(ev) {
   var menu = document.getElementById("app-menu");
   if (menu) menu.hidden = !menu.hidden;
   syncUpdateMenuItem();
+  applyTheme(currentTheme);
 }
 
 function closeMenu() {
@@ -1118,155 +1168,170 @@ document.addEventListener("click", function (ev) {
   if (menu && !menu.hidden && !menu.parentNode.contains(ev.target)) closeMenu();
 });
 
-/* ---------- Google Drive backup ---------- */
+/* ---------- Local file backup (Downloads folder) ---------- */
 
-/* Google OAuth client ID of this app (Desktop/Web type). Create your own at
-   https://console.cloud.google.com/apis/credentials (see README) and set it
-   here; the Drive scope below limits access to files this app creates. */
-var DRIVE_CLIENT_ID = "";
-var DRIVE_FILE_NAME = "maolio-backup.json";
-var DRIVE_MIME = "application/json";
-var DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-var tokenClient = null;
-var driveToken = null;
+/* Keeps a permanent backup file in the phone's Downloads folder. Chrome on
+   Android supports showSaveFilePicker for Downloads; other browsers download
+   the file. The first save asks once for permission; afterwards the app
+   rewrites the same file automatically on every data change. */
+var BACKUP_FILENAME = "maolio-backup.json";
+var backupHandle = null;
+var autoBackupTimer = null;
 
-function driveConfigured() {
-  return typeof DRIVE_CLIENT_ID === "string" && DRIVE_CLIENT_ID.trim() !== "";
+function buildBackupPayload() {
+  return JSON.stringify({
+    app: "maolio",
+    version: 1,
+    savedAt: new Date().toISOString(),
+    sheets: sheets,
+    currentSheetId: currentSheetId
+  }, null, 2);
 }
 
-/* Get an access token, asking the user to sign in / consent when needed. */
-function driveAuth(interactive) {
-  return new Promise(function (resolve, reject) {
-    if (!driveConfigured()) {
-      reject(new Error("Google Drive is not configured — see the README for how to set your OAuth client ID."));
-      return;
-    }
-    if (driveToken && driveToken.expires > Date.now() + 30000) {
-      resolve(driveToken.value);
-      return;
-    }
-    try {
-      if (window.google && google.accounts && google.accounts.oauth2) {
-        if (!tokenClient) {
-          tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: DRIVE_CLIENT_ID,
-            scope: DRIVE_SCOPE,
-            callback: function (resp) {
-              if (resp && resp.access_token) {
-                driveToken = { value: resp.access_token, expires: Date.now() + (Number(resp.expires_in || 3600)) * 1000 };
-                resolve(resp.access_token);
-              } else {
-                reject(new Error("Google sign-in was not completed."));
-              }
-            }
-          });
-        }
-        tokenClient.requestAccessToken({ prompt: interactive ? "" : "none" });
-        return;
-      }
-    } catch (e) {
-      reject(e);
-      return;
-    }
-    reject(new Error("Google Identity Services could not be loaded — check your internet connection."));
-  });
+/* Show a small non-blocking hint when the auto backup could not run. */
+function fileBackupWarn(msg) {
+  try { console.log("File backup:", msg); } catch (e) { /* ignore */ }
 }
 
-function driveFetch(path, options) {
-  return driveAuth(true).then(function (token) {
-    var opts = Object.assign({}, options || {});
-    opts.headers = Object.assign({ Authorization: "Bearer " + token }, opts.headers || {});
-    return fetch("https://www.googleapis.com" + path, opts).then(function (res) {
-      if (res.status === 401) { driveToken = null; }
-      if (!res.ok) throw new Error("Google Drive request failed (" + res.status + ")");
-      return res;
+function writeBackupFile(handle) {
+  var payload = buildBackupPayload();
+  return handle.createWritable().then(function (w) {
+    return w.write(new Blob([payload], { type: "application/json" })).then(function () {
+      return w.close();
     });
   });
 }
 
-/* Find the app's backup file in Drive (creates nothing). */
-function driveFindFile(token) {
-  var q = encodeURIComponent("name='" + DRIVE_FILE_NAME + "' and trashed=false");
-  return fetch("https://www.googleapis.com/drive/v3/files?q=" + q + "&fields=files(id,name,modifiedTime)&pageSize=1", {
-    headers: { Authorization: "Bearer " + token }
-  }).then(function (res) {
-    if (!res.ok) throw new Error("Google Drive search failed (" + res.status + ")");
-    return res.json();
-  }).then(function (data) {
-    return (data.files && data.files[0]) || null;
+/* Ask the user once where to keep the backup file (Downloads on Android),
+   then remember the handle so future saves are automatic and silent. */
+function setupBackupFile() {
+  if (!window.showSaveFilePicker) return Promise.resolve(null);
+  var suggested = {
+    suggestedName: BACKUP_FILENAME,
+    types: [{ description: "Maolio backup", accept: { "application/json": [".json"] } }],
+    startIn: "downloads"
+  };
+  return window.showSaveFilePicker(suggested).then(function (handle) {
+    backupHandle = handle;
+    try { localStorage.setItem("maolio-backup-file", handle.name || BACKUP_FILENAME); } catch (e) { /* ignore */ }
+    return handle;
   });
 }
 
-function backupToDrive() {
-  if (!driveConfigured()) {
-    alert("Google Drive backup is not configured yet. See the README section \"Google Drive backup\" for the one-time setup.");
-    return;
+/* Manual: save a backup file (first time asks for the location). */
+function saveBackupToFile() {
+  var doSave = function (handle) {
+    if (!handle) {
+      downloadBackupViaBrowser();
+      return;
+    }
+    writeBackupFile(handle).then(function () {
+      alert("Backup saved to the Downloads folder (\u201c" + BACKUP_FILENAME + "\u201d).\n" +
+        "This file is kept automatically up to date every time your words change.");
+    }).catch(function (e) {
+      alert("Could not write the backup file: " + (e && e.message ? e.message : e));
+    });
+  };
+  if (backupHandle) {
+    backupHandle.queryPermission({ mode: "readwrite" }).then(function (perm) {
+      if (perm === "granted") { doSave(backupHandle); return; }
+      backupHandle.requestPermission({ mode: "readwrite" }).then(function (p) {
+        doSave(p === "granted" ? backupHandle : null);
+      }).catch(function () { doSave(null); });
+    }).catch(function () { doSave(backupHandle); });
+  } else {
+    setupBackupFile().then(doSave).catch(function () { doSave(null); });
   }
-  var payload = JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId, savedAt: new Date().toISOString() });
-  driveAuth(true).then(function (token) {
-    return driveFindFile(token).then(function (file) {
-      if (file) {
-        return fetch("https://www.googleapis.com/upload/drive/v3/files/" + file.id + "?uploadType=media", {
-          method: "PATCH",
-          headers: { Authorization: "Bearer " + token, "Content-Type": DRIVE_MIME },
-          body: payload
+}
+
+/* Fallback for browsers without the File System Access API: plain download. */
+function downloadBackupViaBrowser() {
+  try {
+    var blob = new Blob([buildBackupPayload()], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = BACKUP_FILENAME;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    alert("Backup file downloaded to your Downloads folder (\u201c" + BACKUP_FILENAME + "\u201d).\n" +
+      "Open \u201cSave backup to file\u201d again to make a fresh copy whenever you want.");
+  } catch (e) {
+    alert("Could not create the backup file: " + (e && e.message ? e.message : e));
+  }
+}
+
+/* Automatic: rewrite the backup file (no dialogs) shortly after data changes. */
+function scheduleAutoFileBackup() {
+  if (!backupHandle || !window.showSaveFilePicker) return;
+  if (autoBackupTimer) clearTimeout(autoBackupTimer);
+  autoBackupTimer = setTimeout(function () {
+    backupHandle.queryPermission({ mode: "readwrite" }).then(function (perm) {
+      if (perm !== "granted") { fileBackupWarn("no permission (tap \u201cSave backup to file\u201d to re-grant)"); return null; }
+      return writeBackupFile(backupHandle).catch(function (e) {
+        fileBackupWarn("auto write failed: " + (e && e.message ? e.message : e));
+      });
+    }).catch(function (e) { fileBackupWarn("auto check failed: " + (e && e.message ? e.message : e)); });
+  }, 1500);
+}
+
+/* Manual: pick a backup file and restore it (with confirmation). */
+function restoreBackupFromFile() {
+  if (window.showOpenFilePicker) {
+    window.showOpenFilePicker({
+      types: [{ description: "Maolio backup", accept: { "application/json": [".json"] } }],
+      multiple: false
+    }).then(function (handles) {
+      if (!handles || !handles[0]) return;
+      return handles[0].getFile().then(function (file) {
+        return file.text().then(function (text) {
+          backupHandle = handles[0];
+          applyBackupPayload(text);
         });
-      }
-      var meta = { name: DRIVE_FILE_NAME, mimeType: DRIVE_MIME };
-      var boundary = "maolio" + Date.now();
-      var body = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + JSON.stringify(meta) +
-        "\r\n--" + boundary + "\r\nContent-Type: " + DRIVE_MIME + "\r\n\r\n" + payload + "\r\n--" + boundary + "--";
-      return fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + token, "Content-Type": "multipart/related; boundary=" + boundary },
-        body: body
       });
+    }).catch(function (e) {
+      if (e && e.name === "AbortError") return;
+      alert("Could not read the backup file: " + (e && e.message ? e.message : e));
     });
-  }).then(function (res) {
-    if (!res.ok) throw new Error("Google Drive upload failed (" + res.status + ")");
-    alert("Backup saved to Google Drive (\u201c" + DRIVE_FILE_NAME + "\u201d in your Drive).\n" +
-      "Sheets: " + sheets.map(function (s) { return s.name + " (" + s.rows.length + " words)"; }).join(", "));
-  }).catch(function (e) { alert("Google Drive backup failed: " + (e && e.message ? e.message : e)); });
+  } else {
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.onchange = function () {
+      var file = input.files && input.files[0];
+      if (!file) return;
+      file.text().then(function (text) { applyBackupPayload(text); })
+        .catch(function (e) { alert("Could not read the backup file: " + (e && e.message ? e.message : e)); });
+    };
+    input.click();
+  }
 }
 
-function restoreFromDrive() {
-  if (!driveConfigured()) {
-    alert("Google Drive backup is not configured yet. See the README section \"Google Drive backup\" for the one-time setup.");
+function applyBackupPayload(text) {
+  var data = null;
+  try { data = JSON.parse(text); } catch (e) { data = null; }
+  if (!data || !Array.isArray(data.sheets) || !data.sheets.length ||
+      !data.sheets.every(function (s) { return s && typeof s === "object" && Array.isArray(s.rows); })) {
+    alert("That file does not look like a Maolio backup.");
     return;
   }
-  driveAuth(true).then(function (token) {
-    return driveFindFile(token).then(function (file) {
-      if (!file) throw new Error("No backup file (\"" + DRIVE_FILE_NAME + "\") was found in your Google Drive. Run \u201cBack up to Google Drive\u201d first.");
-      return fetch("https://www.googleapis.com/drive/v3/files/" + file.id + "?alt=media", {
-        headers: { Authorization: "Bearer " + token }
-      });
-    }).then(function (res) {
-      if (!res.ok) throw new Error("Google Drive download failed (" + res.status + ")");
-      return res.json();
-    }).then(function (data) {
-      if (!data || !Array.isArray(data.sheets) || !data.sheets.length ||
-          !data.sheets.every(function (s) { return s && typeof s === "object" && Array.isArray(s.rows); })) {
-        throw new Error("The Drive backup does not look like Maolio data.");
-      }
-      var when = data.savedAt ? new Date(data.savedAt).toLocaleString() : "unknown time";
-      var counts = data.sheets.map(function (s) { return s.name + " (" + s.rows.length + " words)"; }).join("\n  ");
-      var ok = confirm("Restore this Google Drive backup from " + when + "?\n  " + counts + "\n\nYour current sheets will be kept as a local backup (☰ Menu → Restore backup).");
-      if (!ok) return null;
-      backupSheets();
-      sheets = data.sheets;
-      currentSheetId = data.currentSheetId || sheets[0].id;
-      if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
-      rows = sheetById(currentSheetId).rows;
-      learnIndex = 0;
-      learnRevealed = false;
-      saveSheets();
-      renderSheetSelect();
-      renderTable();
-      renderLearn();
-      showRecoveredBanner("Restored from Google Drive (backup from " + when + ").");
-      return true;
-    }).catch(function (e) { alert("Google Drive restore failed: " + (e && e.message ? e.message : e)); });
-  });
+  var when = data.savedAt ? new Date(data.savedAt).toLocaleString() : "unknown time";
+  var counts = data.sheets.map(function (s) { return s.name + " (" + s.rows.length + " words)"; }).join("\n  ");
+  if (!confirm("Restore this file backup from " + when + "?\n  " + counts +
+      "\n\nYour current sheets will be kept as an in-app backup (\u2630 Menu \u2192 \u21ba Restore backup).")) return;
+  backupSheets();
+  sheets = data.sheets;
+  currentSheetId = data.currentSheetId || sheets[0].id;
+  if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+  rows = sheetById(currentSheetId).rows;
+  learnIndex = 0;
+  learnRevealed = false;
+  saveSheets();
+  renderSheetSelect();
+  renderTable();
+  renderLearn();
+  showRecoveredBanner("Restored from file backup (from " + when + ").");
 }
 
 var waitingWorker = null;
@@ -1310,6 +1375,7 @@ function watchForUpdates() {
 /* ---------- Init ---------- */
 
 loadSheets();
+loadTheme();
 renderSheetSelect();
 renderTable();
 watchForUpdates();

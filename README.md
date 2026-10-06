@@ -33,17 +33,19 @@ A personal vocabulary trainer for a learner of Mandarin Chinese, built for an An
 - **Backups & recovery** — every time your data changes, a safety copy is written to `localStorage["zht-vocab-sheets-backup-v1"]` (up to 10 copies). If the sheets store is ever lost or wiped, the app automatically restores the newest backup. The **↺ Restore backup** item in the ☰ Menu lists backups (timestamped, with word counts per sheet) and lets you restore any of them; the sheets you had before restoring are themselves kept as a backup, so nothing is lost.
 - **Legacy rows recovered** — if your old single-list data (`zht-vocab-table-v1`) still exists but was left behind by the multi-sheet migration, the app re-imports it into a separate "Recovered legacy" sheet on startup, instead of ignoring it.
 
-- **Google Drive backup** — via ☰ Menu: **☁ Back up to Google Drive** uploads all sheets as `maolio-backup.json` to the user's Drive; **⤓ Restore from Google Drive** downloads it back (with a confirmation showing word counts; current data is kept as a local backup first). Uses the `drive.file` scope, so the app can only see the file it created. Requires one-time setup (below).
+- **Local file backup (permanent)** — via ☰ Menu: **💾 Save backup to file** keeps `maolio-backup.json` in the phone's **Downloads** folder (one-time permission prompt on Android Chrome; browsers without folder access just download the file). After the first save the file is rewritten **automatically every time your words change** — it survives app reinstalls and browser-data clearing. **📂 Restore backup from file** brings it back on any device (with a confirmation; current data is kept as an in-app backup first).
 
-## Google Drive backup setup
+- **Themes** — via ☰ Menu → **🐱 Theme**: switch between **Tiger** (orange) and **Calico cat** (ginger-rose on cream). The choice is remembered per device.
 
-The app has no backend, so it talks to Google Drive directly from the browser using Google Identity Services (GIS). One-time setup:
+## Restore data from a backup file
 
-1. In [Google Cloud Console](https://console.cloud.google.com/) create a project and enable the **Google Drive API**.
-2. Create an **OAuth Client ID** of type *Web application* (APIs & Services → Credentials). Add your app's origin(s) to *Authorized JavaScript origins* (e.g. `https://<user>.github.io` and `http://localhost:8080` for local testing).
-3. Put the client ID into `DRIVE_CLIENT_ID` at the top of the Drive section in `index.html` and redeploy.
+If the app ever loses your vocabulary (or you're moving to a new device): open **☰ Menu → 📂 Restore backup from file** and pick `maolio-backup.json` from Downloads (or anywhere you saved it). The app shows what's in the file and asks for confirmation; your current sheets are first kept as an in-app backup, so the restore is reversible.
 
-Without a client ID the two Drive menu items explain that the feature isn't configured and point here. The app asks for the `https://www.googleapis.com/auth/drive.file` scope only — Google shows the usual consent screen on first use. Restore never merges automatically: it shows what's in the backup and asks for confirmation, and the pre-restore state is always kept in the local backups.
+Notes on automatic file backups (Android Chrome):
+
+- The first **💾 Save backup to file** asks once for file permission — this "connects" the app to that file. From then on every change rewrites it silently.
+- The connection lasts while the site has storage permission (Chrome keeps it per site). If automatic saves stop (e.g. after clearing site data), tap **💾 Save backup to file** again to reconnect.
+- If you restore the same file from the picker, the app also adopts it for automatic backups.
 
 ## Deploy
 
