@@ -26,20 +26,20 @@
     --th-shadow: rgba(232,133,4,.05);
   }
   body.theme-calico {
-    --theme: #d98695;          /* calico ginger-rose */
-    --theme-dark: #9d5a68;
-    --bg: #f7f1ec;
-    --card: #fffaf4;
-    --text: #3a2a2e;
-    --muted: #8f7a80;
-    --border: #e3cfd6;
-    --danger: #b91c1c;
-    --hl-bg: #faeae4;
-    --hl-border: #d98695;
-    --stripe: #4a3a40;
-    --th-accent: #f6dee6;
-    --th-surface: #fffaf4;
-    --th-shadow: rgba(217,134,149,.06);
+    --theme: #b98a5e;          /* light brown */
+    --theme-dark: #6b4a2b;
+    --bg: #faf7f2;             /* white with a warm hint */
+    --card: #ffffff;
+    --text: #1a1a1a;          /* black */
+    --muted: #8a7358;
+    --border: #e5dccc;
+    --danger: #1a1a1a;
+    --hl-bg: #f3ece1;
+    --hl-border: #b98a5e;
+    --stripe: #1a1a1a;        /* black header stripes */
+    --th-accent: #f0e7d8;
+    --th-surface: #ffffff;
+    --th-shadow: rgba(185,138,94,.07);
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -1091,7 +1091,7 @@ function applyTheme(name) {
   var animal = document.getElementById("app-animal");
   if (animal) animal.textContent = currentTheme === "calico" ? "🐈" : "🐯";
   var meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", currentTheme === "calico" ? "#d98695" : "#e88504");
+  if (meta) meta.setAttribute("content", currentTheme === "calico" ? "#b98a5e" : "#e88504");
 }
 
 function toggleTheme() {
