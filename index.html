@@ -186,6 +186,32 @@
     font-size: .95rem;
     cursor: pointer;
   }
+  #recovered-banner {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2b1608;
+    color: #fff;
+    border: 2px solid var(--theme);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    z-index: 100;
+    max-width: calc(100vw - 32px);
+  }
+  #recovered-banner button {
+    background: var(--theme);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: .95rem;
+    cursor: pointer;
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -193,6 +219,10 @@
 <div id="update-banner" hidden>
   <span>A new version is available.</span>
   <button onclick="applyUpdate()">Reload</button>
+</div>
+<div id="recovered-banner" hidden>
+  <span id="recovered-msg"></span>
+  <button onclick="dismissRecovered()">OK</button>
 </div>
 <header>
   <h1>🐯 Maolio</h1>
@@ -209,6 +239,7 @@
       <select id="sheet-select" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
       <button class="btn secondary" onclick="newSheet()" title="Create a new sheet">+ New sheet</button>
       <button class="btn secondary" onclick="renameSheet()" title="Rename the current sheet">✎ Rename</button>
+      <button class="btn secondary" onclick="restoreBackup()" title="Restore your sheets from an automatic backup">↺ Restore backup</button>
       <span class="count-badge" id="table-count"></span>
     </div>
     <table>
@@ -240,6 +271,7 @@
 
 var STORAGE_KEY = "zht-vocab-table-v1";
 var SHEETS_KEY = "zht-vocab-sheets-v1";
+var BACKUP_KEY = "zht-vocab-sheets-backup-v1";
 var SEED_ROWS = [
   { id: "r-seed-1", en: "hello", pinyin: "nǐ hǎo", hanzi: "你好",
     note: "你 = 'you' (person walking) + 好 = 'good' (woman + child)" },
@@ -255,6 +287,41 @@ var currentSheetId = null;
 var learnIndex = 0;
 var learnRevealed = false;
 
+/* Save a safety copy of the sheets store before it gets overwritten, so
+   data can be recovered if a later save loses rows (e.g. an empty sheet
+   saved over a full one). Keeps up to 10 backups; skips identical copies
+   and copies with no vocabulary at all. */
+function backupSheets() {
+  try {
+    var hasData = sheets.some(function (s) {
+      return Array.isArray(s.rows) && s.rows.some(function (r) {
+        return r && ((r.en || "").trim() || (r.hanzi || "").trim() || (r.pinyin || "").trim());
+      });
+    });
+    if (!hasData) return;
+    var snapshot = JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId, t: Date.now() });
+    var existing = null;
+    try { existing = localStorage.getItem(BACKUP_KEY); } catch (e) { existing = null; }
+    var backups = [];
+    if (existing) { try { backups = JSON.parse(existing) || []; } catch (e) { backups = []; } }
+    if (Array.isArray(backups) && backups.length && backups[0].json === snapshot) return;
+    backups.unshift({ json: snapshot, t: Date.now() });
+    if (backups.length > 10) backups = backups.slice(0, 10);
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(backups));
+  } catch (e) { /* backup is best-effort; never block saving */ }
+}
+
+function readLegacyRows() {
+  try {
+    var oldRaw = localStorage.getItem(STORAGE_KEY);
+    var oldParsed = oldRaw ? JSON.parse(oldRaw) : null;
+    if (Array.isArray(oldParsed) && oldParsed.length) {
+      return oldParsed.filter(function (r) { return r && typeof r === "object"; });
+    }
+  } catch (e) { /* unreadable legacy store */ }
+  return [];
+}
+
 function loadSheets() {
   var migrated = false;
   try {
@@ -265,31 +332,91 @@ function loadSheets() {
       sheets = parsed.sheets;
       currentSheetId = parsed.currentSheetId || sheets[0].id;
       if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+      /* Re-import the legacy single-list store if it still exists and the
+         migration never consumed it (e.g. multi-sheet store was created on
+         another device). Nothing the user typed is dropped this way. */
+      var legacyExtra = readLegacyRows();
+      if (legacyExtra.length) {
+        var existingIds = {};
+        sheets.forEach(function (s) {
+          (s.rows || []).forEach(function (r) { if (r && r.id) existingIds[r.id] = true; });
+        });
+        var known = {};
+        sheets.forEach(function (s) {
+          (s.rows || []).forEach(function (r) {
+            if (r) known[(r.en || "") + "\u0000" + (r.hanzi || "") + "\u0000" + (r.pinyin || "")] = true;
+          });
+        });
+        var missed = legacyExtra.filter(function (r) {
+          return r.id && !existingIds[r.id] &&
+            !known[(r.en || "") + "\u0000" + (r.hanzi || "") + "\u0000" + (r.pinyin || "")];
+        });
+        if (missed.length) {
+          sheets.push({ id: "s-legacy-" + Date.now(), name: "Recovered legacy", rows: missed });
+          saveSheets();
+          showRecoveredBanner("Found " + missed.length + " word(s) from the old single-list format that were missing from your sheets — they were restored into a new \"Recovered legacy\" sheet.");
+        }
+      }
       rows = sheetById(currentSheetId).rows;
       return;
     }
   } catch (e) { /* corrupted — fall through to migration/seed */ }
 
   /* migration: single-list format (or nothing) -> one sheet */
-  var legacy = null;
+  var legacy = readLegacyRows();
   try {
-    var oldRaw = localStorage.getItem(STORAGE_KEY);
-    var oldParsed = oldRaw ? JSON.parse(oldRaw) : null;
-    if (Array.isArray(oldParsed) && oldParsed.length) {
-      legacy = oldParsed.filter(function (r) { return r && typeof r === "object"; });
-    }
-  } catch (e) { legacy = null; }
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (e) { /* old store stays — harmless, already re-imported */ }
 
-  if (legacy) {
+  if (legacy.length) {
     sheets = [{ id: "s-main", name: "Sheet 1", rows: legacy }];
     migrated = true;
   } else {
-    sheets = [{ id: "s-main", name: "Sheet 1", rows: SEED_ROWS.map(function (r) { return Object.assign({}, r); }) }];
-    migrated = true;
+    /* Recovery: a multi-sheet store exists but is unreadable/empty, and the
+       legacy single-list store is gone. Restore the most recent non-empty
+       safety backup instead of re-seeding and wiping what the user had. */
+    if (!restoreFromBackup()) {
+      sheets = [{ id: "s-main", name: "Sheet 1", rows: SEED_ROWS.map(function (r) { return Object.assign({}, r); }) }];
+      migrated = true;
+    } else {
+      return;
+    }
   }
   currentSheetId = "s-main";
   rows = sheets[0].rows;
   if (migrated) saveSheets();
+}
+
+/* Try the safety backups; returns true if a non-empty backup was restored
+   into the live sheets state. */
+function restoreFromBackup() {
+  var raw = null;
+  try { raw = localStorage.getItem(BACKUP_KEY); } catch (e) { raw = null; }
+  if (!raw) return false;
+  var backups = null;
+  try { backups = JSON.parse(raw); } catch (e) { backups = null; }
+  if (!Array.isArray(backups)) return false;
+  for (var i = 0; i < backups.length; i++) {
+    if (!backups[i] || typeof backups[i].json !== "string") continue;
+    var snap = null;
+    try { snap = JSON.parse(backups[i].json); } catch (e) { snap = null; }
+    if (!snap || !Array.isArray(snap.sheets) || !snap.sheets.length) continue;
+    if (!snap.sheets.every(function (s) { return s && typeof s === "object" && Array.isArray(s.rows); })) continue;
+    var hasData = snap.sheets.some(function (s) {
+      return s.rows.some(function (r) {
+        return r && ((r.en || "").trim() || (r.hanzi || "").trim() || (r.pinyin || "").trim());
+      });
+    });
+    if (!hasData) continue;
+    sheets = snap.sheets;
+    currentSheetId = snap.currentSheetId || sheets[0].id;
+    if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+    rows = sheetById(currentSheetId).rows;
+    saveSheets();
+    showRecoveredBanner();
+    return true;
+  }
+  return false;
 }
 
 function sheetById(id) {
@@ -301,13 +428,88 @@ function sheetById(id) {
 
 function saveSheets() {
   try {
-    localStorage.setItem(SHEETS_KEY, JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId }));
+    var snapshot = JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId });
+    var existing = null;
+    try { existing = localStorage.getItem(SHEETS_KEY); } catch (e) { existing = null; }
+    if (existing !== snapshot) backupSheets();
+    localStorage.setItem(SHEETS_KEY, snapshot);
   } catch (e) {
     try {
       localStorage.removeItem(SHEETS_KEY);
       localStorage.setItem(SHEETS_KEY, JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId }));
     } catch (e2) { /* storage unavailable — app keeps working in memory */ }
   }
+}
+
+/* Manual recovery: offer the stored backups, newest first, and restore the
+   chosen one as the live sheets state. */
+function restoreBackup() {
+  var raw = null;
+  try { raw = localStorage.getItem(BACKUP_KEY); } catch (e) { raw = null; }
+  var backups = null;
+  if (raw) { try { backups = JSON.parse(raw); } catch (e) { backups = null; } }
+  if (!Array.isArray(backups) || !backups.length) {
+    alert("No backups available yet. Backups are saved automatically every time your vocabulary changes.");
+    return;
+  }
+  var lines = ["Restore your sheets from an automatic backup:"];
+  for (var i = 0; i < backups.length; i++) {
+    var snap = null;
+    try { snap = JSON.parse(backups[i].json); } catch (e) { snap = null; }
+    var total = 0;
+    var names = [];
+    if (snap && Array.isArray(snap.sheets)) {
+      snap.sheets.forEach(function (s) {
+        if (!s || !Array.isArray(s.rows)) return;
+        var filled = s.rows.filter(function (r) {
+          return r && ((r.en || "").trim() || (r.hanzi || "").trim() || (r.pinyin || "").trim());
+        }).length;
+        total += filled;
+        names.push((s.name || "Sheet") + " (" + filled + ")");
+      });
+    }
+    var when = backups[i].t ? new Date(backups[i].t).toLocaleString() : "unknown time";
+    lines.push((i + 1) + ". " + when + " — " + total + " words across " + names.join(", "));
+  }
+  lines.push("\nEnter a number (1 = newest), or Cancel to keep your current sheets.");
+  var answer = prompt(lines.join("\n"), "1");
+  if (answer === null) return;
+  var idx = parseInt(answer, 10);
+  if (isNaN(idx) || idx < 1 || idx > backups.length) {
+    alert("Please enter a number between 1 and " + backups.length + ".");
+    return;
+  }
+  var snap = null;
+  try { snap = JSON.parse(backups[idx - 1].json); } catch (e) { snap = null; }
+  if (!snap || !Array.isArray(snap.sheets) || !snap.sheets.length) {
+    alert("That backup could not be read.");
+    return;
+  }
+  backupSheets();
+  sheets = snap.sheets;
+  currentSheetId = snap.currentSheetId || sheets[0].id;
+  if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+  rows = sheetById(currentSheetId).rows;
+  learnIndex = 0;
+  learnRevealed = false;
+  saveSheets();
+  renderSheetSelect();
+  renderTable();
+  renderLearn();
+  showRecoveredBanner("Backup restored. Your previous sheets were kept as a backup — use Restore backup again to get them back.");
+}
+
+function showRecoveredBanner(msg) {
+  var banner = document.getElementById("recovered-banner");
+  var span = document.getElementById("recovered-msg");
+  if (!banner || !span) return;
+  span.textContent = msg || "Your vocabulary was restored from an automatic backup.";
+  banner.hidden = false;
+}
+
+function dismissRecovered() {
+  var banner = document.getElementById("recovered-banner");
+  if (banner) banner.hidden = true;
 }
 
 /* rows is always a live reference into the current sheet */
