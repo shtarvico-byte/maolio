@@ -1,4 +1,4 @@
-var CACHE_NAME = "zht-vocab-v4";
+var CACHE_NAME = "zht-vocab-v5";
 /* Bump the version suffix (v1 → v2 → …) on every release so clients drop the old
    cache and fetch the updated app shell. */
 var APP_SHELL = [

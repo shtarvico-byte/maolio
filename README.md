@@ -35,6 +35,8 @@ A personal vocabulary trainer for a learner of Mandarin Chinese, built for an An
 
 - **Local file backup (permanent)** — via ☰ Menu: **💾 Save backup to file** keeps `maolio-backup.json` in the phone's **Downloads** folder (one-time permission prompt on Android Chrome; browsers without folder access just download the file). After the first save the file is rewritten **automatically every time your words change** — it survives app reinstalls and browser-data clearing. **📂 Restore backup from file** brings it back on any device (with a confirmation; current data is kept as an in-app backup first).
 
+- **Themes** — via ☰ Menu → **🐱 Theme**: switch between **Tiger** (orange) and **Calico cat** (ginger-rose on cream). The choice is remembered per device.
+
 ## Restore data from a backup file
 
 If the app ever loses your vocabulary (or you're moving to a new device): open **☰ Menu → 📂 Restore backup from file** and pick `maolio-backup.json` from Downloads (or anywhere you saved it). The app shows what's in the file and asks for confirmation; your current sheets are first kept as an in-app backup, so the restore is reversible.

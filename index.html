@@ -21,11 +21,30 @@
     --hl-bg: #fef3c7;
     --hl-border: #d97706;
     --stripe: #2b1608;
+    --th-accent: #fde4bd;      /* table headers, focus, menu highlight */
+    --th-surface: #fffaf0;    /* inputs, new-row button */
+    --th-shadow: rgba(232,133,4,.05);
+  }
+  body.theme-calico {
+    --theme: #d98695;          /* calico ginger-rose */
+    --theme-dark: #9d5a68;
+    --bg: #f7f1ec;
+    --card: #fffaf4;
+    --text: #3a2a2e;
+    --muted: #8f7a80;
+    --border: #e3cfd6;
+    --danger: #b91c1c;
+    --hl-bg: #faeae4;
+    --hl-border: #d98695;
+    --stripe: #4a3a40;
+    --th-accent: #f6dee6;
+    --th-surface: #fffaf4;
+    --th-shadow: rgba(217,134,149,.06);
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg);
-    background-image: repeating-linear-gradient(45deg, transparent, transparent 34px, rgba(232,133,4,.05) 34px, rgba(232,133,4,.05) 40px);
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 34px, var(--th-shadow) 34px, var(--th-shadow) 40px);
     color: var(--text);
     min-height: 100vh;
     display: flex;
@@ -60,13 +79,13 @@
     min-height: 44px;
   }
   .tab-btn.active { background: #fff; color: var(--theme-dark); font-weight: 700; }
-  .new-row-btn { background: #fffaf0; color: var(--theme-dark); font-weight: 700; }
+  .new-row-btn { background: var(--th-surface); color: var(--theme-dark); font-weight: 700; }
   .sheet-select {
     font-size: 1rem;
     padding: 10px 12px;
     border-radius: 8px;
     border: 1px solid var(--border);
-    background: #fffaf0;
+    background: var(--th-surface);
     color: var(--text);
     min-height: 44px;
     max-width: 40vw;
@@ -101,7 +120,7 @@
     font-size: 1rem;
     cursor: pointer;
   }
-  .menu button:active { background: #fde4bd; }
+  .menu button:active { background: var(--th-accent); }
   .menu-sep { border: none; border-top: 1px solid var(--border); margin: 6px 4px; }
   .btn {
     background: var(--theme);
@@ -120,7 +139,7 @@
   .btn:disabled { opacity: .4; cursor: default; }
   table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   th, td { border: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: middle; }
-  th { background: #fde4bd; color: var(--theme-dark); font-size: .95rem; padding: 10px; }
+  th { background: var(--th-accent); color: var(--theme-dark); font-size: .95rem; padding: 10px; }
   td input, td textarea {
     width: 100%;
     border: none;
@@ -138,7 +157,7 @@
     white-space: pre-wrap;
     word-wrap: break-word;
   }
-  td input:focus, td textarea:focus { background: #fde4bd; border-radius: 4px; }
+  td input:focus, td textarea:focus { background: var(--th-accent); border-radius: 4px; }
   td .zh { font-size: 1.3rem; }
   .row-actions { display: flex; gap: 6px; justify-content: center; }
   .row-status { font-size: .85rem; color: var(--muted); margin-left: 12px; }
@@ -275,6 +294,8 @@
           <hr class="menu-sep">
           <button onclick="menuAction(saveBackupToFile)">💾 Save backup to file</button>
           <button onclick="menuAction(restoreBackupFromFile)">📂 Restore backup from file</button>
+          <hr class="menu-sep">
+          <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
       </div>
       <span class="count-badge" id="table-count"></span>
@@ -1055,6 +1076,33 @@ function switchTab(tab) {
 
 /* ---------- Service worker / updates ---------- */
 
+/* ---------- Theme (Tiger / Calico cat) ---------- */
+
+var THEME_KEY = "zht-vocab-theme";
+var currentTheme = "tiger";
+
+function applyTheme(name) {
+  currentTheme = name === "calico" ? "calico" : "tiger";
+  if (document.body.classList) {
+    document.body.classList.toggle("theme-calico", currentTheme === "calico");
+  }
+  var item = document.getElementById("menu-theme");
+  if (item) item.textContent = currentTheme === "calico" ? "🐱 Theme: Calico cat" : "🐱 Theme: Tiger";
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", currentTheme === "calico" ? "#d98695" : "#e88504");
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme === "calico" ? "tiger" : "calico");
+  try { localStorage.setItem(THEME_KEY, currentTheme); } catch (e) { /* ignore */ }
+}
+
+function loadTheme() {
+  var saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch (e) { saved = null; }
+  applyTheme(saved);
+}
+
 /* ---------- App menu ---------- */
 
 function toggleMenu(ev) {
@@ -1062,6 +1110,7 @@ function toggleMenu(ev) {
   var menu = document.getElementById("app-menu");
   if (menu) menu.hidden = !menu.hidden;
   syncUpdateMenuItem();
+  applyTheme(currentTheme);
 }
 
 function closeMenu() {
@@ -1326,6 +1375,7 @@ function watchForUpdates() {
 /* ---------- Init ---------- */
 
 loadSheets();
+loadTheme();
 renderSheetSelect();
 renderTable();
 watchForUpdates();
