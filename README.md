@@ -25,11 +25,25 @@ A personal vocabulary trainer for a learner of Mandarin Chinese, built for an An
 ## Features
 
 - **Table tab** — Excel-like editable vocabulary table (English | Pinyin | 汉字 | Memory help). Every edit is saved immediately to `localStorage`; no save button. "+ Add row" appends an empty row; ✕ deletes a row. A "+ Row" button in the top bar is always visible, even in Learn mode.
-- **Multiple sheets** — keep separate vocabulary decks (e.g. per HSK level). Use the dropdown to switch, "+ New sheet" to create one (asks for a name), ✎ Rename to rename it. All sheets live in `localStorage` key `zht-vocab-sheets-v1`; data from the old single-list format is migrated automatically.
+- **Multiple sheets** — keep separate vocabulary decks (e.g. per HSK level). Use the dropdown to switch. Sheet actions live in the **☰ Menu** button: "+ New sheet" creates one (asks for a name), "✎ Rename sheet" renames it, "↺ Restore backup" recovers data (see Backups & recovery), and "⤓ Update app" checks for a new version and activates it (shows "ready!" when one is already waiting). All sheets live in `localStorage` key `zht-vocab-sheets-v1`; data from the old single-list format is migrated automatically.
 - **Learn tab** — hide-and-reveal flashcards: English on the front, a 🔊 button to hear the Chinese word, "Show answer" reveals hanzi (large), pinyin, and the mnemonic in a highlighted box. Prev/Next navigation, "Card X of Y" counter, only rows with non-empty English participate.
 - **Auto-translate (译)** — triggered by Enter in the English cell or the 译 button. Google translate gtx endpoint first (hanzi + romanized pinyin), MyMemory API as fallback (hanzi only). Fills only empty cells — never overwrites manual input. Shows "…" while loading and a clear error message on failure.
 - **Pronunciation (▶)** — per row and on the revealed learn card. Web Speech API, `zh-CN` voice, rate 0.85. Disabled when hanzi is empty; failures are silently ignored.
 - **Data safety** — storage reads/writes wrapped in try/catch; corrupted storage re-seeds the 3 starter rows (你好 / hello, 谢谢 / thank you, 水 / water) instead of crashing.
+- **Backups & recovery** — every time your data changes, a safety copy is written to `localStorage["zht-vocab-sheets-backup-v1"]` (up to 10 copies). If the sheets store is ever lost or wiped, the app automatically restores the newest backup. The **↺ Restore backup** item in the ☰ Menu lists backups (timestamped, with word counts per sheet) and lets you restore any of them; the sheets you had before restoring are themselves kept as a backup, so nothing is lost.
+- **Legacy rows recovered** — if your old single-list data (`zht-vocab-table-v1`) still exists but was left behind by the multi-sheet migration, the app re-imports it into a separate "Recovered legacy" sheet on startup, instead of ignoring it.
+
+- **Google Drive backup** — via ☰ Menu: **☁ Back up to Google Drive** uploads all sheets as `maolio-backup.json` to the user's Drive; **⤓ Restore from Google Drive** downloads it back (with a confirmation showing word counts; current data is kept as a local backup first). Uses the `drive.file` scope, so the app can only see the file it created. Requires one-time setup (below).
+
+## Google Drive backup setup
+
+The app has no backend, so it talks to Google Drive directly from the browser using Google Identity Services (GIS). One-time setup:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/) create a project and enable the **Google Drive API**.
+2. Create an **OAuth Client ID** of type *Web application* (APIs & Services → Credentials). Add your app's origin(s) to *Authorized JavaScript origins* (e.g. `https://<user>.github.io` and `http://localhost:8080` for local testing).
+3. Put the client ID into `DRIVE_CLIENT_ID` at the top of the Drive section in `index.html` and redeploy.
+
+Without a client ID the two Drive menu items explain that the feature isn't configured and point here. The app asks for the `https://www.googleapis.com/auth/drive.file` scope only — Google shows the usual consent screen on first use. Restore never merges automatically: it shows what's in the backup and asks for confirmation, and the pre-restore state is always kept in the local backups.
 
 ## Deploy
 
