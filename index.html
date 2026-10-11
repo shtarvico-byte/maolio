@@ -280,6 +280,19 @@
     cursor: pointer;
   }
   [hidden] { display: none !important; }
+
+  .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; }
+  .modal-content { background: var(--card); border-radius: 16px; border: 3px solid var(--stripe); box-shadow: 0 4px 20px rgba(0,0,0,0.3); width: 90%; max-width: 500px; padding: 24px; max-height: 80vh; overflow-y: auto; }
+  .modal-content h3 { color: var(--theme-dark); margin-bottom: 16px; text-align: center; }
+  #sync-banner { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #2b1608; color: #fff; border: 2px solid var(--theme); border-radius: 10px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 100; max-width: calc(100vw - 32px); }
+  #sync-banner button { background: var(--theme); color: #fff; border: none; border-radius: 6px; padding: 8px 14px; font-size: .95rem; cursor: pointer; }
+  .conflicts-list { background: var(--card); border-radius: 10px; border: 1px solid var(--border); padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+  .conflict-item { border: 2px solid var(--danger); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fff; }
+  .conflict-item h4 { color: var(--danger); margin-bottom: 8px; }
+  .conflict-version { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; background: var(--hl-bg); }
+  .conflict-version.local { border-left: 4px solid var(--theme); }
+  .conflict-version.remote { border-left: 4px solid var(--danger); }
+  .conflict-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -290,12 +303,12 @@
 <div id="recovered-banner" hidden>
   <span id="recovered-msg"></span>
   <button onclick="dismissRecovered()">OK</button>
-</div>
+</div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
   <h1><span id="app-animal">🐯</span> Maolio</h1>
   <nav class="tabs">
     <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
-    <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
+    <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button><button class="tab-btn" id="tab-conflicts" onclick="switchTab('conflicts')" hidden>Conflicts</button>
   </nav>
   <button class="tab-btn new-row-btn" onclick="addRowFromAnywhere()" title="Add a new vocabulary row">+ Row</button>
 </header>
@@ -314,7 +327,7 @@
           <hr class="menu-sep">
           <button onclick="menuAction(saveBackupToFile)">💾 Save backup to file</button>
           <button onclick="menuAction(restoreBackupFromFile)">📂 Restore backup from file</button>
-          <hr class="menu-sep">
+          <button id="menu-sync" onclick="menuAction(configureSync)">Cloud Sync: Not configured</button><button id="menu-sync-now" onclick="menuAction(syncNow)" hidden>Sync Now</button><hr class="menu-sep"><hr class="menu-sep">
           <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
       </div>
@@ -341,7 +354,7 @@
       <div class="learn-controls" id="learn-controls"></div>
     </div>
     <div class="empty-state" id="learn-empty" hidden>Add some words in the Table tab first.</div>
-  </section>
+  </section><section id="view-conflicts" hidden><div class="toolbar"><h3>Sync Conflicts</h3><button class="btn" onclick="resolveAllConflicts()">Resolve All</button></div><div id="conflicts-list" class="conflicts-list"></div></section>
 </main>
 
 <script>
@@ -518,7 +531,8 @@ function saveSheets() {
       localStorage.setItem(SHEETS_KEY, JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId }));
     } catch (e2) { /* storage unavailable — app keeps working in memory */ }
   }
-}
+
+  scheduleSync();}
 
 /* Manual recovery: offer the stored backups, newest first, and restore the
    chosen one as the live sheets state. */
@@ -1084,13 +1098,20 @@ function navLearn(delta) {
 
 function switchTab(tab) {
   var isTable = tab === "table";
+  var isLearn = tab === "learn";
+  var isConflicts = tab === "conflicts";
   document.getElementById("view-table").hidden = !isTable;
-  document.getElementById("view-learn").hidden = isTable;
+  document.getElementById("view-learn").hidden = !isLearn;
+  document.getElementById("view-conflicts").hidden = !isConflicts;
   document.getElementById("tab-table").classList.toggle("active", isTable);
-  document.getElementById("tab-learn").classList.toggle("active", !isTable);
-  if (!isTable) {
+  document.getElementById("tab-learn").classList.toggle("active", isLearn);
+  document.getElementById("tab-conflicts").classList.toggle("active", isConflicts);
+  if (!isTable && !isConflicts) {
     learnRevealed = false;
     renderLearn();
+  }
+  if (isConflicts) {
+    renderConflicts();
   }
 }
 
@@ -1394,13 +1415,228 @@ function watchForUpdates() {
   } catch (e) { /* ignore */ }
 }
 
+/* ---------- Cloud Sync ---------- */
+var SYNC_URL_KEY = "maolio-sync-url";
+var SYNC_ENABLED_KEY = "maolio-sync-enabled";
+var SYNC_DEVICE_ID_KEY = "maolio-sync-device-id";
+var syncUrl = null;
+var syncEnabled = false;
+var syncDeviceId = null;
+var conflicts = [];
+
+function getDeviceId() {
+  if (syncDeviceId) return syncDeviceId;
+  try { syncDeviceId = localStorage.getItem(SYNC_DEVICE_ID_KEY); } catch (e) { syncDeviceId = null; }
+  if (!syncDeviceId) {
+    syncDeviceId = "device-" + Math.random().toString(36).substr(2, 9) + "-" + Date.now();
+    try { localStorage.setItem(SYNC_DEVICE_ID_KEY, syncDeviceId); } catch (e) {}
+  }
+  return syncDeviceId;
+}
+
+function loadSyncConfig() {
+  try {
+    syncUrl = localStorage.getItem(SYNC_URL_KEY) || null;
+    var enabled = localStorage.getItem(SYNC_ENABLED_KEY);
+    syncEnabled = enabled === "true";
+  } catch (e) { syncUrl = null; syncEnabled = false; }
+  updateSyncMenu();
+}
+
+function updateSyncMenu() {
+  var syncBtn = document.getElementById("menu-sync");
+  var syncNowBtn = document.getElementById("menu-sync-now");
+  if (syncBtn) {
+    syncBtn.textContent = "Cloud Sync: " + (syncUrl ? (syncEnabled ? "Enabled" : "Paused") : "Not configured");
+  }
+  if (syncNowBtn) { syncNowBtn.hidden = !syncUrl; }
+}
+
+function configureSync() {
+  var modal = document.getElementById("sync-modal");
+  var input = document.getElementById("sync-url-input");
+  if (modal && input) { input.value = syncUrl || ""; modal.hidden = false; }
+}
+function closeSyncModal() { var m = document.getElementById("sync-modal"); if (m) m.hidden = true; }
+
+function saveSyncConfig() {
+  var input = document.getElementById("sync-url-input");
+  if (!input) return;
+  var url = (input.value || "").trim();
+  if (!url) { alert("Please enter a valid URL"); return; }
+  syncUrl = url; syncEnabled = true;
+  try {
+    localStorage.setItem(SYNC_URL_KEY, syncUrl);
+    localStorage.setItem(SYNC_ENABLED_KEY, "true");
+  } catch (e) { alert("Could not save: " + (e.message || e)); return; }
+  closeSyncModal(); updateSyncMenu();
+  showSyncBanner("Sync configured. Testing..."); syncNow();
+}
+
+function dismissSyncBanner() { var b = document.getElementById("sync-banner"); if (b) b.hidden = true; }
+function showSyncBanner(msg) {
+  var b = document.getElementById("sync-banner");
+  var s = document.getElementById("sync-msg");
+  if (!b || !s) return; s.textContent = msg; b.hidden = false;
+}
+
+function fetchRemoteBackup() {
+  if (!syncUrl) return Promise.reject(new Error("No sync URL"));
+  return fetch(syncUrl + "?t=" + Date.now())
+    .then(function(res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.text(); })
+    .then(function(text) { var d; try { d = JSON.parse(text); } catch(e) { throw new Error("Invalid JSON"); }
+      if (!d || !d.sheets || !d.sheets.length) throw new Error("Invalid format"); return d; });
+}
+
+function uploadToRemote(payload) {
+  if (!syncUrl) return Promise.reject(new Error("No sync URL"));
+  var h = { "Content-Type": "application/json" };
+  return fetch(syncUrl, { method: "PUT", headers: h, body: payload })
+    .then(function(res) { if (res.ok) return; return fetch(syncUrl, { method: "POST", headers: h, body: JSON.stringify({ file: "maolio-backup.json", content: payload }) }); })
+    .then(function(res) { if (res && !res.ok) throw new Error("HTTP " + res.status); });
+}
+
+function buildSyncPayload() {
+  return JSON.stringify({ app: "maolio", version: 1, savedAt: new Date().toISOString(),
+    deviceId: getDeviceId(), sheets: sheets, currentSheetId: currentSheetId }, null, 2);
+}
+
+function mergeData(localSheets, remoteData) {
+  var localById = {}; var remoteById = {}; var allSheetIds = {}; var mergedSheets = []; var deviceName = getDeviceId();
+  localSheets.forEach(function(s) { localById[s.id] = s; allSheetIds[s.id] = true; });
+  (remoteData.sheets || []).forEach(function(s) { remoteById[s.id] = s; allSheetIds[s.id] = true; });
+  for (var sheetId in allSheetIds) {
+    var ls = localById[sheetId]; var rs = remoteById[sheetId];
+    if (ls && !rs) mergedSheets.push(ls);
+    else if (!ls && rs) mergedSheets.push(rs);
+    else if (ls && rs) {
+      var mergedRows = []; var lr = {}; var rr = {}; var ar = {};
+      (ls.rows || []).forEach(function(r) { lr[r.id] = r; ar[r.id] = true; });
+      (rs.rows || []).forEach(function(r) { rr[r.id] = r; ar[r.id] = true; });
+      for (var rowId in ar) {
+        var localRow = lr[rowId]; var remoteRow = rr[rowId];
+        if (localRow && !remoteRow) mergedRows.push(localRow);
+        else if (!localRow && remoteRow) mergedRows.push(remoteRow);
+        else if (localRow && remoteRow) {
+          var ld = (localRow.en||"")+"|"+(localRow.pinyin||"")+"|"+(localRow.hanzi||"")+"|"+(localRow.note||"");
+          var rd = (remoteRow.en||"")+"|"+(remoteRow.pinyin||"")+"|"+(remoteRow.hanzi||"")+"|"+(remoteRow.note||"");
+          if (ld === rd) mergedRows.push(localRow);
+          else {
+            conflicts.push({sheetId: sheetId, rowId: rowId, local: localRow, remote: remoteRow});
+            mergedRows.push(localRow);
+            var cr = JSON.parse(JSON.stringify(remoteRow));
+            cr.id = rowId + "-conflict-" + deviceName;
+            cr.en = (remoteRow.en || "") + " [CONFLICT: " + deviceName + "]";
+            mergedRows.push(cr);
+          }
+        }
+      }
+      var ms = JSON.parse(JSON.stringify(ls)); ms.rows = mergedRows; mergedSheets.push(ms);
+    }
+  }
+  (remoteData.sheets || []).forEach(function(s) { if (!localById[s.id] && !allSheetIds[s.id]) mergedSheets.push(s); });
+  return { sheets: mergedSheets, currentSheetId: remoteData.currentSheetId || localSheets[0].id, conflicts: conflicts };
+}
+
+function syncNow() {
+  if (!syncUrl) { showSyncBanner("Sync URL not configured"); return; }
+  if (!syncEnabled) { showSyncBanner("Sync is paused"); return; }
+  showSyncBanner("Syncing..."); backupSheets();
+  fetchRemoteBackup().then(function(remoteData) {
+    var merged = mergeData(sheets, remoteData);
+    conflicts = merged.conflicts || []; sheets = merged.sheets;
+    currentSheetId = merged.currentSheetId || sheets[0].id;
+    if (!sheets.some(function(s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+    rows = sheetById(currentSheetId).rows; saveSheets(); renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+    if (merged.conflicts && merged.conflicts.length > 0) { showSyncBanner("Sync complete with " + merged.conflicts.length + " conflicts. Check Conflicts tab."); return; }
+    return uploadToRemote(buildSyncPayload());
+  }).then(function() { if (conflicts.length === 0) showSyncBanner("Sync complete!"); })
+    .catch(function(e) { showSyncBanner("Sync error: " + (e.message || e)); });
+}
+
+function updateConflictsTab() {
+  var tab = document.getElementById("tab-conflicts");
+  if (tab) { tab.hidden = conflicts.length === 0; if (conflicts.length > 0) tab.textContent = "Conflicts (" + conflicts.length + ")"; }
+}
+
+function renderConflicts() {
+  var c = document.getElementById("conflicts-list"); if (!c) return; c.innerHTML = "";
+  if (conflicts.length === 0) { c.innerHTML = "<p style="color:var(--muted);">No conflicts.</p>"; return; }
+  conflicts.forEach(function(cf) {
+    var item = document.createElement("div"); item.className = "conflict-item";
+    var title = document.createElement("h4"); title.textContent = "Conflict: " + (cf.local.en || cf.local.hanzi || cf.rowId);
+    item.appendChild(title);
+    var ld = document.createElement("div"); ld.className = "conflict-version local";
+    ld.innerHTML = "<strong>Local:</strong><br>" + (cf.local.en||"") + " | " + (cf.local.pinyin||"") + " | " + (cf.local.hanzi||"");
+    item.appendChild(ld);
+    var rd = document.createElement("div"); rd.className = "conflict-version remote";
+    rd.innerHTML = "<strong>Remote:</strong><br>" + (cf.remote.en||"") + " | " + (cf.remote.pinyin||"") + " | " + (cf.remote.hanzi||"");
+    item.appendChild(rd);
+    var acts = document.createElement("div"); acts.className = "conflict-actions";
+    var kl = document.createElement("button"); kl.className = "btn small"; kl.textContent = "Keep Local";
+    kl.onclick = function() { resolveConflict(cf, "local"); }; acts.appendChild(kl);
+    var kr = document.createElement("button"); kr.className = "btn small secondary"; kr.textContent = "Keep Remote";
+    kr.onclick = function() { resolveConflict(cf, "remote"); }; acts.appendChild(kr);
+    var kb = document.createElement("button"); kb.className = "btn small secondary"; kb.textContent = "Keep Both";
+    kb.onclick = function() { resolveConflict(cf, "both"); }; acts.appendChild(kb);
+    item.appendChild(acts); c.appendChild(item);
+  });
+}
+
+function resolveConflict(cf, choice) {
+  var sheet = sheetById(cf.sheetId); if (!sheet) return;
+  var li = -1; var ci = -1;
+  for (var i = 0; i < sheet.rows.length; i++) {
+    if (sheet.rows[i].id === cf.rowId) li = i;
+    if (sheet.rows[i].id === cf.rowId + "-conflict-" + getDeviceId()) ci = i;
+  }
+  if (choice === "local" && ci >= 0) sheet.rows.splice(ci, 1);
+  else if (choice === "remote") {
+    if (li >= 0) sheet.rows[li] = cf.remote;
+    if (ci >= 0) sheet.rows.splice(ci, 1);
+  }
+  else if (choice === "both" && ci >= 0) {
+    var row = sheet.rows[ci]; row.en = row.en.replace(/ \[CONFLICT:.*\]/, ""); row.id = cf.rowId + "-remote";
+  }
+  cf.resolved = true; conflicts = conflicts.filter(function(c) { return !c.resolved; });
+  saveSheets(); renderTable(); renderLearn(); updateConflictsTab(); renderConflicts();
+}
+
+function resolveAllConflicts() {
+  if (conflicts.length === 0) return;
+  if (!confirm("Keep all LOCAL versions?")) return;
+  conflicts.forEach(function(cf) { resolveConflict(cf, "local"); });
+  conflicts = []; updateConflictsTab(); renderConflicts();
+}
+
+var syncTimeout = null;
+function scheduleSync() {
+  if (!syncEnabled || !syncUrl) return;
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(function() { syncNow(); }, 5000);
+}
+
 /* ---------- Init ---------- */
 
 loadSheets();
+loadSyncConfig();
 loadTheme();
 renderSheetSelect();
 renderTable();
 watchForUpdates();
 </script>
+<div id="sync-modal" class="modal" hidden>
+  <div class="modal-content">
+    <h3>Cloud Sync Setup</h3>
+    <div id="sync-modal-body">
+      <p>Enter the URL where your backup file is stored.</p>
+      <p><input type="url" id="sync-url-input" placeholder="https://example.com/maolio-backup.json" style="width:100%; padding:10px; margin:10px 0; border:1px solid var(--border); border-radius:6px; font-size:1rem;"></p>
+      <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:20px;">
+        <button class="btn secondary" onclick="closeSyncModal()">Cancel</button>
+        <button class="btn" onclick="saveSyncConfig()">Save & Test</button>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
