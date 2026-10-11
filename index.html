@@ -1505,6 +1505,175 @@ function watchForUpdates() {
   } catch (e) { /* ignore */ }
 }
 
+/* ---------- Conflict Management ---------- */
+
+var conflicts = [];
+
+function trackConflict(sheetId, rowId, localRow, remoteRow) {
+  conflicts.push({
+    id: rowId + "-" + Date.now(),
+    sheetId: sheetId,
+    rowId: rowId,
+    local: localRow,
+    remote: remoteRow,
+    resolved: false
+  });
+  updateConflictsTab();
+}
+
+function updateConflictsTab() {
+  var tab = document.getElementById("tab-conflicts");
+  if (tab) {
+    tab.hidden = conflicts.length === 0;
+    if (conflicts.length > 0) {
+      tab.textContent = "Conflicts (" + conflicts.length + ")";
+    }
+  }
+}
+
+function renderConflicts() {
+  var container = document.getElementById("conflicts-list");
+  if (!container) return;
+  
+  container.innerHTML = "";
+  
+  if (conflicts.length === 0) {
+    container.innerHTML = "<p style="color:var(--muted);">No conflicts to resolve.</p>";
+    return;
+  }
+  
+  conflicts.forEach(function (conflict) {
+    var item = document.createElement("div");
+    item.className = "conflict-item";
+    
+    var title = document.createElement("h4");
+    title.textContent = "Conflict in: " + (conflict.local.en || conflict.local.hanzi || conflict.rowId);
+    item.appendChild(title);
+    
+    // Local version
+    var localDiv = document.createElement("div");
+    localDiv.className = "conflict-version local";
+    var localTitle = document.createElement("strong");
+    localTitle.textContent = "Your version:";
+    localDiv.appendChild(localTitle);
+    localDiv.appendChild(document.createTextNode(" English: " + (conflict.local.en || "")));
+    localDiv.appendChild(document.createElement("br"));
+    localDiv.appendChild(document.createTextNode(" Pinyin: " + (conflict.local.pinyin || "")));
+    localDiv.appendChild(document.createElement("br"));
+    localDiv.appendChild(document.createTextNode(" Hanzi: " + (conflict.local.hanzi || "")));
+    item.appendChild(localDiv);
+    
+    // Remote version
+    var remoteDiv = document.createElement("div");
+    remoteDiv.className = "conflict-version remote";
+    var remoteTitle = document.createElement("strong");
+    remoteTitle.textContent = "Remote version:";
+    remoteDiv.appendChild(remoteTitle);
+    remoteDiv.appendChild(document.createTextNode(" English: " + (conflict.remote.en || "")));
+    remoteDiv.appendChild(document.createElement("br"));
+    remoteDiv.appendChild(document.createTextNode(" Pinyin: " + (conflict.remote.pinyin || "")));
+    remoteDiv.appendChild(document.createElement("br"));
+    remoteDiv.appendChild(document.createTextNode(" Hanzi: " + (conflict.remote.hanzi || "")));
+    item.appendChild(remoteDiv);
+    
+    // Actions
+    var actions = document.createElement("div");
+    actions.className = "conflict-actions";
+    
+    var keepLocal = document.createElement("button");
+    keepLocal.className = "btn small";
+    keepLocal.textContent = "Keep Local";
+    keepLocal.onclick = function () {
+      resolveConflict(conflict, "local");
+    };
+    actions.appendChild(keepLocal);
+    
+    var keepRemote = document.createElement("button");
+    keepRemote.className = "btn small secondary";
+    keepRemote.textContent = "Keep Remote";
+    keepRemote.onclick = function () {
+      resolveConflict(conflict, "remote");
+    };
+    actions.appendChild(keepRemote);
+    
+    var keepBoth = document.createElement("button");
+    keepBoth.className = "btn small secondary";
+    keepBoth.textContent = "Keep Both";
+    keepBoth.onclick = function () {
+      resolveConflict(conflict, "both");
+    };
+    actions.appendChild(keepBoth);
+    
+    item.appendChild(actions);
+    container.appendChild(item);
+  });
+}
+
+function resolveConflict(conflict, choice) {
+  var sheet = sheetById(conflict.sheetId);
+  if (!sheet) return;
+  
+  var localRowIndex = -1;
+  var conflictRowIndex = -1;
+  
+  // Find the rows in the sheet
+  for (var i = 0; i < sheet.rows.length; i++) {
+    if (sheet.rows[i].id === conflict.rowId) {
+      localRowIndex = i;
+    }
+    if (sheet.rows[i].id === conflict.rowId + "-conflict-" + getDeviceId()) {
+      conflictRowIndex = i;
+    }
+  }
+  
+  if (choice === "local") {
+    // Remove conflict marker row, keep local
+    if (conflictRowIndex >= 0) {
+      sheet.rows.splice(conflictRowIndex, 1);
+    }
+  } else if (choice === "remote") {
+    // Replace local with remote, remove conflict
+    if (localRowIndex >= 0) {
+      sheet.rows[localRowIndex] = conflict.remote;
+    }
+    if (conflictRowIndex >= 0) {
+      sheet.rows.splice(conflictRowIndex, 1);
+    }
+  } else if (choice === "both") {
+    // Keep both, just remove conflict marker from remote
+    if (conflictRowIndex >= 0) {
+      var row = sheet.rows[conflictRowIndex];
+      row.en = row.en.replace(/ \[CONFLICT:.*\]/, "");
+      row.id = conflict.rowId + "-remote";
+    }
+  }
+  
+  // Mark conflict as resolved
+  conflict.resolved = true;
+  
+  // Remove resolved conflicts
+  conflicts = conflicts.filter(function (c) { return !c.resolved; });
+  
+  saveSheets();
+  renderTable();
+  renderLearn();
+  updateConflictsTab();
+  renderConflicts();
+}
+
+function resolveAllConflicts() {
+  if (conflicts.length === 0) return;
+  if (!confirm("Are you sure you want to keep all LOCAL versions and remove all remote conflicts?")) return;
+  
+  conflicts.forEach(function (conflict) {
+    resolveConflict(conflict, "local");
+  });
+  
+  conflicts = [];
+  updateConflictsTab();
+  renderConflicts();
+}
+
 /* ---------- Cloud Sync ---------- */
 
 var SYNC_URL_KEY = "maolio-sync-url";
@@ -1821,175 +1990,6 @@ function scheduleSync() {
   syncTimeout = setTimeout(function () {
     syncNow();
   }, 5000);
-}
-
-/* ---------- Conflict Management ---------- */
-
-var conflicts = [];
-
-function trackConflict(sheetId, rowId, localRow, remoteRow) {
-  conflicts.push({
-    id: rowId + "-" + Date.now(),
-    sheetId: sheetId,
-    rowId: rowId,
-    local: localRow,
-    remote: remoteRow,
-    resolved: false
-  });
-  updateConflictsTab();
-}
-
-function updateConflictsTab() {
-  var tab = document.getElementById("tab-conflicts");
-  if (tab) {
-    tab.hidden = conflicts.length === 0;
-    if (conflicts.length > 0) {
-      tab.textContent = "Conflicts (" + conflicts.length + ")";
-    }
-  }
-}
-
-function renderConflicts() {
-  var container = document.getElementById("conflicts-list");
-  if (!container) return;
-  
-  container.innerHTML = "";
-  
-  if (conflicts.length === 0) {
-    container.innerHTML = "<p style="color:var(--muted);">No conflicts to resolve.</p>";
-    return;
-  }
-  
-  conflicts.forEach(function (conflict) {
-    var item = document.createElement("div");
-    item.className = "conflict-item";
-    
-    var title = document.createElement("h4");
-    title.textContent = "Conflict in: " + (conflict.local.en || conflict.local.hanzi || conflict.rowId);
-    item.appendChild(title);
-    
-    // Local version
-    var localDiv = document.createElement("div");
-    localDiv.className = "conflict-version local";
-    var localTitle = document.createElement("strong");
-    localTitle.textContent = "Your version:";
-    localDiv.appendChild(localTitle);
-    localDiv.appendChild(document.createTextNode(" English: " + (conflict.local.en || "")));
-    localDiv.appendChild(document.createElement("br"));
-    localDiv.appendChild(document.createTextNode(" Pinyin: " + (conflict.local.pinyin || "")));
-    localDiv.appendChild(document.createElement("br"));
-    localDiv.appendChild(document.createTextNode(" Hanzi: " + (conflict.local.hanzi || "")));
-    item.appendChild(localDiv);
-    
-    // Remote version
-    var remoteDiv = document.createElement("div");
-    remoteDiv.className = "conflict-version remote";
-    var remoteTitle = document.createElement("strong");
-    remoteTitle.textContent = "Remote version:";
-    remoteDiv.appendChild(remoteTitle);
-    remoteDiv.appendChild(document.createTextNode(" English: " + (conflict.remote.en || "")));
-    remoteDiv.appendChild(document.createElement("br"));
-    remoteDiv.appendChild(document.createTextNode(" Pinyin: " + (conflict.remote.pinyin || "")));
-    remoteDiv.appendChild(document.createElement("br"));
-    remoteDiv.appendChild(document.createTextNode(" Hanzi: " + (conflict.remote.hanzi || "")));
-    item.appendChild(remoteDiv);
-    
-    // Actions
-    var actions = document.createElement("div");
-    actions.className = "conflict-actions";
-    
-    var keepLocal = document.createElement("button");
-    keepLocal.className = "btn small";
-    keepLocal.textContent = "Keep Local";
-    keepLocal.onclick = function () {
-      resolveConflict(conflict, "local");
-    };
-    actions.appendChild(keepLocal);
-    
-    var keepRemote = document.createElement("button");
-    keepRemote.className = "btn small secondary";
-    keepRemote.textContent = "Keep Remote";
-    keepRemote.onclick = function () {
-      resolveConflict(conflict, "remote");
-    };
-    actions.appendChild(keepRemote);
-    
-    var keepBoth = document.createElement("button");
-    keepBoth.className = "btn small secondary";
-    keepBoth.textContent = "Keep Both";
-    keepBoth.onclick = function () {
-      resolveConflict(conflict, "both");
-    };
-    actions.appendChild(keepBoth);
-    
-    item.appendChild(actions);
-    container.appendChild(item);
-  });
-}
-
-function resolveConflict(conflict, choice) {
-  var sheet = sheetById(conflict.sheetId);
-  if (!sheet) return;
-  
-  var localRowIndex = -1;
-  var conflictRowIndex = -1;
-  
-  // Find the rows in the sheet
-  for (var i = 0; i < sheet.rows.length; i++) {
-    if (sheet.rows[i].id === conflict.rowId) {
-      localRowIndex = i;
-    }
-    if (sheet.rows[i].id === conflict.rowId + "-conflict-" + getDeviceId()) {
-      conflictRowIndex = i;
-    }
-  }
-  
-  if (choice === "local") {
-    // Remove conflict marker row, keep local
-    if (conflictRowIndex >= 0) {
-      sheet.rows.splice(conflictRowIndex, 1);
-    }
-  } else if (choice === "remote") {
-    // Replace local with remote, remove conflict
-    if (localRowIndex >= 0) {
-      sheet.rows[localRowIndex] = conflict.remote;
-    }
-    if (conflictRowIndex >= 0) {
-      sheet.rows.splice(conflictRowIndex, 1);
-    }
-  } else if (choice === "both") {
-    // Keep both, just remove conflict marker from remote
-    if (conflictRowIndex >= 0) {
-      var row = sheet.rows[conflictRowIndex];
-      row.en = row.en.replace(/ \[CONFLICT:.*\]/, "");
-      row.id = conflict.rowId + "-remote";
-    }
-  }
-  
-  // Mark conflict as resolved
-  conflict.resolved = true;
-  
-  // Remove resolved conflicts
-  conflicts = conflicts.filter(function (c) { return !c.resolved; });
-  
-  saveSheets();
-  renderTable();
-  renderLearn();
-  updateConflictsTab();
-  renderConflicts();
-}
-
-function resolveAllConflicts() {
-  if (conflicts.length === 0) return;
-  if (!confirm("Are you sure you want to keep all LOCAL versions and remove all remote conflicts?")) return;
-  
-  conflicts.forEach(function (conflict) {
-    resolveConflict(conflict, "local");
-  });
-  
-  conflicts = [];
-  updateConflictsTab();
-  renderConflicts();
 }
 
 /* ---------- Init ---------- */
