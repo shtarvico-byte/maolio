@@ -451,6 +451,22 @@
   </section>
 </main>
 
+
+<div id="sync-modal" class="modal" hidden>
+  <div class="modal-content">
+    <h3>Cloud Sync Setup</h3>
+    <div id="sync-modal-body">
+      <p>Enter the URL where your backup file is stored. This can be a Google Drive, Dropbox, or any web-accessible URL.</p>
+      <p><input type="url" id="sync-url-input" placeholder="https://example.com/maolio-backup.json" style="width:100%; padding:10px; margin:10px 0; border:1px solid var(--border); border-radius:6px; font-size:1rem;"></p>
+      <p style="color:var(--muted); font-size:0.9rem;">Note: The URL must be accessible without authentication, or you'll need to authenticate separately.</p>
+      <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:20px;">
+        <button class="btn secondary" onclick="closeSyncModal()">Cancel</button>
+        <button class="btn" onclick="saveSyncConfig()">Save & Test</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -2005,19 +2021,7 @@ renderSheetSelect();
 renderTable();
 watchForUpdates();
 </script>
-<div id="sync-modal" class="modal" hidden>
-  <div class="modal-content">
-    <h3>Cloud Sync Setup</h3>
-    <div id="sync-modal-body">
-      <p>Enter the URL where your backup file is stored. This can be a Google Drive, Dropbox, or any web-accessible URL.</p>
-      <p><input type="url" id="sync-url-input" placeholder="https://example.com/maolio-backup.json" style="width:100%; padding:10px; margin:10px 0; border:1px solid var(--border); border-radius:6px; font-size:1rem;"></p>
-      <p style="color:var(--muted); font-size:0.9rem;">Note: The URL must be accessible without authentication, or you'll need to authenticate separately.</p>
-      <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:20px;">
-        <button class="btn secondary" onclick="closeSyncModal()">Cancel</button>
-        <button class="btn" onclick="saveSyncConfig()">Save & Test</button>
-      </div>
-    </div>
-  </div>
-</div>
 </body>
 </html>
+
+
