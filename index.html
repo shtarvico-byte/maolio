@@ -631,7 +631,7 @@ function newSheet() {
   var name = prompt("Name for the new sheet:", "Sheet " + (sheets.length + 1));
   if (name === null) return;
   name = (name || "").trim() || ("Sheet " + (sheets.length + 1));
-  var sheet = { id: "s-" + Date.now(), name: name, rows: [] };
+  var sheet = { id: "s-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), name: name, rows: [] };
   sheets.push(sheet);
   switchSheet(sheet.id);
 }
@@ -776,8 +776,11 @@ function autoGrow(ta) {
   ta.style.height = ta.scrollHeight + "px";
 }
 
+function uniqueRowId() {
+  return "r-" + Date.now() + "-" + getDeviceId() + "-" + Math.random().toString(36).slice(2, 8);
+}
 function addRow() {
-  rows.push({ id: "r-" + Date.now(), en: "", pinyin: "", hanzi: "", note: "" });
+  rows.push({ id: uniqueRowId(), en: "", pinyin: "", hanzi: "", note: "" });
   saveRows();
   renderTable();
   var body = document.getElementById("table-body");
@@ -1543,7 +1546,6 @@ function mergeData(localSheets, remoteData) {
             mergedRows.push(localRow);
             var cr = JSON.parse(JSON.stringify(remoteRow));
             cr.id = rowId + "-conflict-" + deviceName;
-            cr.en = (remoteRow.en || "") + " [CONFLICT: " + deviceName + "]";
             mergedRows.push(cr);
           }
         }
@@ -1613,7 +1615,7 @@ function resolveConflict(cf, choice) {
     if (ci >= 0) sheet.rows.splice(ci, 1);
   }
   else if (choice === "both" && ci >= 0) {
-    var row = sheet.rows[ci]; row.en = row.en.replace(/ \[CONFLICT:.*\]/, ""); row.id = cf.rowId + "-remote";
+    var row = sheet.rows[ci]; row.en = (row.en || "").replace(/ \[CONFLICT:[^\]]*\]/g, ""); row.id = cf.rowId + "-remote-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
   }
   cf.resolved = true; conflicts = conflicts.filter(function(c) { return !c.resolved; });
   saveSheets(); renderTable(); renderLearn(); updateConflictsTab(); renderConflicts();
@@ -1850,9 +1852,63 @@ function saveDriveSetup() {
   });
 }
 
+/* One-time cleanup of rows polluted by the old conflict-duplication bug:
+   rows whose text carried a " [CONFLICT: device]" marker were duplicated on
+   every sync. Merge a marker row back with its original if the rest of the
+   content is identical, and drop exact-duplicate empty rows. */
+var CONFLICT_CLEANUP_KEY = "maolio-conflict-cleanup-v1";
+function cleanupConflictArtifacts() {
+  try { if (localStorage.getItem(CONFLICT_CLEANUP_KEY)) return; } catch (e) { return; }
+  var markerRe = / \[CONFLICT:[^\]]*\]/;
+  var markerAll = / \[CONFLICT:[^\]]*\]/g;
+  var changed = false;
+  sheets.forEach(function (sh) {
+    var seen = {};
+    var out = [];
+    (sh.rows || []).forEach(function (r) {
+      if (!r) return;
+      var hadMarker = markerRe.test(r.en || "");
+      var cleanEn = (r.en || "").replace(markerAll, "");
+      if (hadMarker) {
+        var baseId = (r.id || "").replace(/-conflict-.*$/, "");
+        var match = null;
+        (sh.rows || []).forEach(function (o) {
+          if (o && o !== r && (o.id === baseId || o.id === (r.id || "")) &&
+              (o.en || "").replace(markerAll, "") === cleanEn) match = o;
+        });
+        if (match) { changed = true; return; }
+        if (cleanEn.trim()) {
+          var c = JSON.parse(JSON.stringify(r));
+          c.en = cleanEn;
+          c.id = c.id + "-clean-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+          out.push(c); changed = true;
+          return;
+        }
+        changed = true;
+        return;
+      }
+      var dedupeKey = ((r.en || "") + "\u0000" + (r.pinyin || "") + "\u0000" + (r.hanzi || "") + "\u0000" + (r.note || ""));
+      if (!dedupeKey.replace(/\u0000/g, "").trim()) {
+        var emptySeen = false;
+        out.forEach(function (o) {
+          if (!(o.en || "").trim() && !(o.pinyin || "").trim() && !(o.hanzi || "").trim()) emptySeen = true;
+        });
+        if (emptySeen) { changed = true; return; }
+      }
+      if (seen[dedupeKey] && !dedupeKey.replace(/\u0000/g, "").trim()) { changed = true; return; }
+      seen[dedupeKey] = true;
+      out.push(r);
+    });
+    sh.rows = out;
+  });
+  try { localStorage.setItem(CONFLICT_CLEANUP_KEY, "1"); } catch (e) {}
+  if (changed) saveSheets();
+}
+
 /* ---------- Init ---------- */
 
 loadSheets();
+cleanupConflictArtifacts();
 loadSyncConfig();
 loadDriveConfig();
 updateSyncMenu();
