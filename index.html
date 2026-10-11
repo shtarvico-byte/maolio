@@ -331,7 +331,8 @@
           <button id="menu-sync" onclick="menuAction(configureSync)">Cloud Sync: Not configured</button><button id="menu-sync-now" onclick="menuAction(syncNow)" hidden>Sync Now (URL)</button>
           <button id="menu-drive" onclick="menuAction(configureDriveSync)">&#9729; Google Drive Sync: Not configured</button>
           <button id="menu-drive-disconnect" onclick="menuAction(disconnectDrive)" hidden>Disconnect Google Drive</button>
-          <button id="menu-sync-disconnect" onclick="menuAction(disconnectUrlSync)" hidden>Disconnect URL Sync</button><hr class="menu-sep"><hr class="menu-sep">
+          <button id="menu-sync-disconnect" onclick="menuAction(disconnectUrlSync)" hidden>Disconnect URL Sync</button>
+          <button id="menu-drive-restore" onclick="menuAction(restoreFromCloud)" hidden>&#8635; Restore from cloud</button><hr class="menu-sep"><hr class="menu-sep">
           <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
       </div>
@@ -1462,6 +1463,8 @@ function updateSyncMenu() {
   var driveOffBtn = document.getElementById("menu-drive-disconnect");
   if (driveBtn) driveBtn.textContent = "\u2601 Google Drive Sync: " + (driveIsConfigured() ? "Enabled" : "Not configured");
   if (driveOffBtn) driveOffBtn.hidden = !driveIsConfigured();
+  var driveRestoreBtn = document.getElementById("menu-drive-restore");
+  if (driveRestoreBtn) driveRestoreBtn.hidden = !driveIsConfigured();
   var urlOffBtn = document.getElementById("menu-sync-disconnect");
   if (urlOffBtn) urlOffBtn.hidden = !syncUrl;
 }
@@ -1858,6 +1861,33 @@ function stopDriveAutoSync() {
   if (driveIntervalTimer) { clearInterval(driveIntervalTimer); driveIntervalTimer = null; }
 }
 
+function restoreFromCloud() {
+  if (!driveIsConfigured()) { alert("Google Drive sync is not configured."); return; }
+  if (!confirm("Replace everything on this device with the copy from Google Drive?\n\nYour current local data is saved to the safety backup first (restore it via Menu > Restore backup if needed).")) return;
+  showSyncBanner("Downloading from Drive...");
+  backupSheets();
+  driveEnsureToken().then(function () {
+    return driveFindFile();
+  }).then(function (meta) {
+    if (!meta) { showSyncBanner("No backup found in Drive yet."); return null; }
+    return driveDownload(meta.id).then(function (remoteData) {
+      if (!remoteData || !Array.isArray(remoteData.sheets) || !remoteData.sheets.length) {
+        showSyncBanner("The Drive backup is empty or invalid. Local data was not changed.");
+        return;
+      }
+      sheets = remoteData.sheets;
+      currentSheetId = remoteData.currentSheetId || sheets[0].id;
+      if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+      rows = sheetById(currentSheetId).rows;
+      if (Array.isArray(remoteData.deleted)) { deletedRows = remoteData.deleted; saveDeletedRows(); }
+      saveSheets();
+      renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+      showSyncBanner("Restored from Google Drive.");
+    });
+  }).catch(function (e) {
+    showSyncBanner("Restore failed: " + (e.message || e));
+  });
+}
 function disconnectDrive() {
   if (!confirm("Disconnect Google Drive sync? Your data stays on this device.")) return;
   driveConfig = null; driveToken = null; driveTokenExpiresAt = 0; driveTokenClient = null;
