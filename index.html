@@ -641,7 +641,7 @@ function renameSheet() {
   var name = prompt("Rename sheet:", s.name);
   if (name === null) return;
   name = (name || "").trim() || s.name;
-  s.name = name;
+  if (name !== s.name) { s.name = name; s.renamedAt = Date.now(); }
   saveSheets();
   renderSheetSelect();
 }
@@ -713,6 +713,7 @@ function renderTable() {
     delBtn.textContent = "✕";
     delBtn.title = "Delete row";
     delBtn.addEventListener("click", function () {
+      recordRowDeletion(row.id);
       rows.splice(i, 1);
       saveRows();
       renderTable();
@@ -1518,11 +1519,49 @@ function uploadToRemote(payload) {
 
 function buildSyncPayload() {
   return JSON.stringify({ app: "maolio", version: 1, savedAt: new Date().toISOString(),
-    deviceId: getDeviceId(), sheets: sheets, currentSheetId: currentSheetId }, null, 2);
+    deviceId: getDeviceId(), sheets: sheets, currentSheetId: currentSheetId, deleted: deletedRows }, null, 2);
 }
 
+var DELETED_KEY = "maolio-deleted-rows";
+var deletedRows = [];
+var TOMBSTONE_MAX_AGE = 30 * 24 * 3600 * 1000;
+function loadDeletedRows() {
+  try {
+    var raw = localStorage.getItem(DELETED_KEY);
+    var d = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(d)) deletedRows = d;
+  } catch (e) { deletedRows = []; }
+}
+function saveDeletedRows() {
+  try { localStorage.setItem(DELETED_KEY, JSON.stringify(deletedRows)); } catch (e) {}
+}
+function recordRowDeletion(rowId) {
+  if (!rowId) return;
+  for (var i = 0; i < deletedRows.length; i++) {
+    if (deletedRows[i].id === rowId) { deletedRows[i].t = Date.now(); saveDeletedRows(); return; }
+  }
+  deletedRows.push({ id: rowId, t: Date.now() });
+  if (deletedRows.length > 1000) deletedRows = deletedRows.slice(-1000);
+  saveDeletedRows();
+}
+function pruneDeletedRows() {
+  var cutoff = Date.now() - TOMBSTONE_MAX_AGE;
+  var before = deletedRows.length;
+  deletedRows = deletedRows.filter(function (d) { return d && d.t >= cutoff; });
+  if (deletedRows.length !== before) saveDeletedRows();
+}
 function mergeData(localSheets, remoteData) {
   var localById = {}; var remoteById = {}; var allSheetIds = {}; var mergedSheets = []; var deviceName = getDeviceId();
+  var tombstones = {};
+  deletedRows.forEach(function (d) { tombstones[d.id] = true; });
+  (remoteData.deleted || []).forEach(function (d) { tombstones[d.id] = true; });
+  var mergedDeleted = {};
+  deletedRows.forEach(function (d) { mergedDeleted[d.id] = d; });
+  (remoteData.deleted || []).forEach(function (d) {
+    if (!mergedDeleted[d.id] || mergedDeleted[d.id].t < d.t) mergedDeleted[d.id] = d;
+  });
+  deletedRows = Object.keys(mergedDeleted).map(function (id) { return mergedDeleted[id]; });
+  pruneDeletedRows();
   localSheets.forEach(function(s) { localById[s.id] = s; allSheetIds[s.id] = true; });
   (remoteData.sheets || []).forEach(function(s) { remoteById[s.id] = s; allSheetIds[s.id] = true; });
   for (var sheetId in allSheetIds) {
@@ -1534,6 +1573,7 @@ function mergeData(localSheets, remoteData) {
       (ls.rows || []).forEach(function(r) { lr[r.id] = r; ar[r.id] = true; });
       (rs.rows || []).forEach(function(r) { rr[r.id] = r; ar[r.id] = true; });
       for (var rowId in ar) {
+        if (tombstones[rowId]) continue;
         var localRow = lr[rowId]; var remoteRow = rr[rowId];
         if (localRow && !remoteRow) mergedRows.push(localRow);
         else if (!localRow && remoteRow) mergedRows.push(remoteRow);
@@ -1550,7 +1590,9 @@ function mergeData(localSheets, remoteData) {
           }
         }
       }
-      var ms = JSON.parse(JSON.stringify(ls)); ms.rows = mergedRows; mergedSheets.push(ms);
+      var ms = JSON.parse(JSON.stringify(ls)); ms.rows = mergedRows;
+      if ((rs.renamedAt || 0) > (ls.renamedAt || 0)) { ms.name = rs.name; ms.renamedAt = rs.renamedAt; }
+      mergedSheets.push(ms);
     }
   }
   (remoteData.sheets || []).forEach(function(s) { if (!localById[s.id] && !allSheetIds[s.id]) mergedSheets.push(s); });
@@ -1908,6 +1950,7 @@ function cleanupConflictArtifacts() {
 /* ---------- Init ---------- */
 
 loadSheets();
+loadDeletedRows();
 cleanupConflictArtifacts();
 loadSyncConfig();
 loadDriveConfig();
