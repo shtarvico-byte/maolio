@@ -330,7 +330,8 @@
           <button onclick="menuAction(restoreBackupFromFile)">📂 Restore backup from file</button>
           <button id="menu-sync" onclick="menuAction(configureSync)">Cloud Sync: Not configured</button><button id="menu-sync-now" onclick="menuAction(syncNow)" hidden>Sync Now (URL)</button>
           <button id="menu-drive" onclick="menuAction(configureDriveSync)">&#9729; Google Drive Sync: Not configured</button>
-          <button id="menu-drive-disconnect" onclick="menuAction(disconnectDrive)" hidden>Disconnect Google Drive</button><hr class="menu-sep"><hr class="menu-sep">
+          <button id="menu-drive-disconnect" onclick="menuAction(disconnectDrive)" hidden>Disconnect Google Drive</button>
+          <button id="menu-sync-disconnect" onclick="menuAction(disconnectUrlSync)" hidden>Disconnect URL Sync</button><hr class="menu-sep"><hr class="menu-sep">
           <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
       </div>
@@ -1450,9 +1451,15 @@ function updateSyncMenu() {
   var syncBtn = document.getElementById("menu-sync");
   var syncNowBtn = document.getElementById("menu-sync-now");
   if (syncBtn) {
-    syncBtn.textContent = "Cloud Sync: " + (syncUrl ? (syncEnabled ? "Enabled" : "Paused") : "Not configured");
+    syncBtn.textContent = "Cloud Sync (URL): " + (syncUrl ? (syncEnabled ? "Enabled" : "Paused") : "Not configured");
   }
   if (syncNowBtn) { syncNowBtn.hidden = !syncUrl; }
+  var driveBtn = document.getElementById("menu-drive");
+  var driveOffBtn = document.getElementById("menu-drive-disconnect");
+  if (driveBtn) driveBtn.textContent = "\u2601 Google Drive Sync: " + (driveIsConfigured() ? "Enabled" : "Not configured");
+  if (driveOffBtn) driveOffBtn.hidden = !driveIsConfigured();
+  var urlOffBtn = document.getElementById("menu-sync-disconnect");
+  if (urlOffBtn) urlOffBtn.hidden = !syncUrl;
 }
 
 function configureSync() {
@@ -1461,6 +1468,13 @@ function configureSync() {
   if (modal && input) { input.value = syncUrl || ""; modal.hidden = false; }
 }
 function closeSyncModal() { var m = document.getElementById("sync-modal"); if (m) m.hidden = true; }
+function disconnectUrlSync() {
+  if (!confirm("Disconnect URL-based sync? Your data stays on this device (Drive sync, if enabled, keeps working).")) return;
+  syncUrl = null; syncEnabled = false;
+  try { localStorage.removeItem(SYNC_URL_KEY); localStorage.removeItem(SYNC_ENABLED_KEY); } catch (e) {}
+  updateSyncMenu();
+  showSyncBanner("URL sync disconnected.");
+}
 
 function saveSyncConfig() {
   var input = document.getElementById("sync-url-input");
