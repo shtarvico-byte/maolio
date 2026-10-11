@@ -1561,7 +1561,7 @@ function updateConflictsTab() {
 
 function renderConflicts() {
   var c = document.getElementById("conflicts-list"); if (!c) return; c.innerHTML = "";
-  if (conflicts.length === 0) { c.innerHTML = "<p style="color:var(--muted);">No conflicts.</p>"; return; }
+  if (conflicts.length === 0) { c.innerHTML = '<p style="color:var(--muted);">No conflicts.</p>'; return; }
   conflicts.forEach(function(cf) {
     var item = document.createElement("div"); item.className = "conflict-item";
     var title = document.createElement("h4"); title.textContent = "Conflict: " + (cf.local.en || cf.local.hanzi || cf.rowId);
