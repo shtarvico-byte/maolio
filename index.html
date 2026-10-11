@@ -332,7 +332,8 @@
           <button id="menu-drive" onclick="menuAction(configureDriveSync)">&#9729; Google Drive Sync: Not configured</button>
           <button id="menu-drive-disconnect" onclick="menuAction(disconnectDrive)" hidden>Disconnect Google Drive</button>
           <button id="menu-sync-disconnect" onclick="menuAction(disconnectUrlSync)" hidden>Disconnect URL Sync</button>
-          <button id="menu-drive-restore" onclick="menuAction(restoreFromCloud)" hidden>&#8635; Restore from cloud</button><hr class="menu-sep"><hr class="menu-sep">
+          <button id="menu-drive-restore" onclick="menuAction(restoreFromCloud)" hidden>&#8635; Restore from cloud</button>
+          <button id="menu-drive-sync-now" onclick="menuAction(driveSyncNowManual)" hidden>&#128260; Drive Sync Now</button><hr class="menu-sep"><hr class="menu-sep">
           <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
       </div>
@@ -1465,6 +1466,8 @@ function updateSyncMenu() {
   if (driveOffBtn) driveOffBtn.hidden = !driveIsConfigured();
   var driveRestoreBtn = document.getElementById("menu-drive-restore");
   if (driveRestoreBtn) driveRestoreBtn.hidden = !driveIsConfigured();
+  var driveSyncNowBtn = document.getElementById("menu-drive-sync-now");
+  if (driveSyncNowBtn) driveSyncNowBtn.hidden = !driveIsConfigured();
   var urlOffBtn = document.getElementById("menu-sync-disconnect");
   if (urlOffBtn) urlOffBtn.hidden = !syncUrl;
 }
@@ -1861,6 +1864,11 @@ function stopDriveAutoSync() {
   if (driveIntervalTimer) { clearInterval(driveIntervalTimer); driveIntervalTimer = null; }
 }
 
+function driveSyncNowManual() {
+  if (!driveIsConfigured()) { alert("Google Drive sync is not configured."); return; }
+  if (driveSyncInFlight) { showSyncBanner("Drive sync already running..."); return; }
+  driveSyncNow(true);
+}
 function restoreFromCloud() {
   if (!driveIsConfigured()) { alert("Google Drive sync is not configured."); return; }
   if (!confirm("Replace everything on this device with the copy from Google Drive?\n\nYour current local data is saved to the safety backup first (restore it via Menu > Restore backup if needed).")) return;
