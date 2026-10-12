@@ -1602,7 +1602,7 @@ function mergeData(localSheets, remoteData) {
     }
   }
   (remoteData.sheets || []).forEach(function(s) { if (!localById[s.id] && !allSheetIds[s.id]) mergedSheets.push(s); });
-  return { sheets: mergedSheets, currentSheetId: remoteData.currentSheetId || localSheets[0].id, conflicts: conflicts };
+  return { sheets: mergedSheets, currentSheetId: currentSheetId || remoteData.currentSheetId || localSheets[0].id, conflicts: conflicts };
 }
 
 function syncNow() {
