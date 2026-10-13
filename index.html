@@ -461,9 +461,6 @@ function loadSheets() {
 
   /* migration: single-list format (or nothing) -> one sheet */
   var legacy = readLegacyRows();
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch (e) { /* old store stays — harmless, already re-imported */ }
 
   if (legacy.length) {
     sheets = [{ id: "s-main", name: "Sheet 1", rows: legacy }];
@@ -481,7 +478,15 @@ function loadSheets() {
   }
   currentSheetId = "s-main";
   rows = sheets[0].rows;
-  if (migrated) saveSheets();
+  if (migrated) {
+    try {
+      saveSheets();
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* If saveSheets fails, keep the legacy store so data is not lost */
+      return;
+    }
+  }
 }
 
 /* Try the safety backups; returns true if a non-empty backup was restored
@@ -528,13 +533,14 @@ function saveSheets() {
     var snapshot = JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId });
     var existing = null;
     try { existing = localStorage.getItem(SHEETS_KEY); } catch (e) { existing = null; }
-    if (existing !== snapshot) backupSheets();
     localStorage.setItem(SHEETS_KEY, snapshot);
+    if (existing !== snapshot) backupSheets();
     scheduleAutoFileBackup();
   } catch (e) {
     try {
       localStorage.removeItem(SHEETS_KEY);
       localStorage.setItem(SHEETS_KEY, JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId }));
+      if (existing !== JSON.stringify({ sheets: sheets, currentSheetId: currentSheetId })) backupSheets();
     } catch (e2) { /* storage unavailable — app keeps working in memory */ }
   }
 
@@ -715,6 +721,10 @@ function renderTable() {
     delBtn.textContent = "✕";
     delBtn.title = "Delete row";
     delBtn.addEventListener("click", function () {
+      var enText = (row.en || "").trim();
+      var hzText = (row.hanzi || "").trim();
+      var displayText = enText || hzText || "this row";
+      if (!confirm("Delete \"" + displayText + "\"? This cannot be undone.")) return;
       recordRowDeletion(row.id);
       rows.splice(i, 1);
       saveRows();
@@ -1579,11 +1589,20 @@ function mergeData(localSheets, remoteData) {
       (ls.rows || []).forEach(function(r) { lr[r.id] = r; ar[r.id] = true; });
       (rs.rows || []).forEach(function(r) { rr[r.id] = r; ar[r.id] = true; });
       for (var rowId in ar) {
-        if (tombstones[rowId]) continue;
         var localRow = lr[rowId]; var remoteRow = rr[rowId];
-        if (localRow && !remoteRow) mergedRows.push(localRow);
-        else if (!localRow && remoteRow) mergedRows.push(remoteRow);
-        else if (localRow && remoteRow) {
+        var isDeletedLocal = tombstones[rowId] && deletedRows.some(function(d) { return d.id === rowId; });
+        var isDeletedRemote = tombstones[rowId] && (remoteData.deleted || []).some(function(d) { return d.id === rowId; });
+        
+        // Only skip if deleted on BOTH devices (true deletion consensus)
+        if (isDeletedLocal && isDeletedRemote) continue;
+        
+        // If deleted on one device but exists on the other, keep the existing version
+        // (the deletion was effectively undone by the other device's modifications)
+        if (localRow && !remoteRow) {
+          if (!isDeletedLocal) mergedRows.push(localRow);
+        } else if (!localRow && remoteRow) {
+          if (!isDeletedRemote) mergedRows.push(remoteRow);
+        } else if (localRow && remoteRow) {
           var ld = (localRow.en||"")+"|"+(localRow.pinyin||"")+"|"+(localRow.hanzi||"")+"|"+(localRow.note||"");
           var rd = (remoteRow.en||"")+"|"+(remoteRow.pinyin||"")+"|"+(remoteRow.hanzi||"")+"|"+(remoteRow.note||"");
           if (ld === rd) mergedRows.push(localRow);
