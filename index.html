@@ -227,6 +227,36 @@
   .learn-controls { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
   .learn-nav { display: flex; gap: 12px; align-items: center; }
   .card-counter { color: var(--muted); font-size: 1rem; }
+  .mode-toggles { display: flex; gap: 16px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .toggle-switch { display: flex; align-items: center; gap: 8px; }
+  .toggle-switch label { font-size: 0.95rem; cursor: pointer; color: var(--text); }
+  .toggle-switch input[type="checkbox"] {
+    width: 44px;
+    height: 24px;
+    appearance: none;
+    background: var(--border);
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle-switch input[type="checkbox"]:checked {
+    background: var(--theme);
+  }
+  .toggle-switch input[type="checkbox"]::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    top: 3px;
+    left: 3px;
+    transition: transform 0.2s;
+  }
+  .toggle-switch input[type="checkbox"]:checked::before {
+    transform: translateX(20px);
+  }
   .empty-state { color: var(--muted); font-size: 1.2rem; text-align: center; padding: 40px 0; }
   #update-banner {
     position: fixed;
@@ -355,6 +385,16 @@
 
   <section id="view-learn" hidden>
     <div class="learn-wrap" id="learn-wrap">
+      <div class="mode-toggles" id="mode-toggles">
+        <div class="toggle-switch">
+          <label for="toggle-english">Show English</label>
+          <input type="checkbox" id="toggle-english" checked onclick="toggleLearnMode('english')">
+        </div>
+        <div class="toggle-switch">
+          <label for="toggle-hanzi">Show Hanzi</label>
+          <input type="checkbox" id="toggle-hanzi" onclick="toggleLearnMode('hanzi')">
+        </div>
+      </div>
       <div class="learn-card" id="learn-card"></div>
       <div class="card-counter" id="learn-counter"></div>
       <div class="learn-controls" id="learn-controls"></div>
@@ -383,6 +423,8 @@ var sheets = [];          /* [{ id, name, rows: [...] }, ...] */
 var currentSheetId = null;
 var learnIndex = 0;
 var learnRevealed = false;
+var learnShowEnglish = true;
+var learnShowHanzi = false;
 
 /* Save a safety copy of the sheets store before it gets overwritten, so
    data can be recovered if a later save loses rows (e.g. an empty sheet
@@ -597,6 +639,9 @@ function restoreBackup() {
   rows = sheetById(currentSheetId).rows;
   learnIndex = 0;
   learnRevealed = false;
+  learnShowEnglish = true;
+  learnShowHanzi = false;
+  updateModeToggles();
   saveSheets();
   renderSheetSelect();
   renderTable();
@@ -629,6 +674,9 @@ function switchSheet(id) {
   rows = s.rows;
   learnIndex = 0;
   learnRevealed = false;
+  learnShowEnglish = true;
+  learnShowHanzi = false;
+  updateModeToggles();
   saveSheets();
   renderSheetSelect();
   renderTable();
@@ -1016,6 +1064,23 @@ function learnRows() {
   return rows.filter(function (r) { return (r.en || "").trim() !== ""; });
 }
 
+function toggleLearnMode(field) {
+  if (field === 'english') {
+    learnShowEnglish = !learnShowEnglish;
+  } else if (field === 'hanzi') {
+    learnShowHanzi = !learnShowHanzi;
+  }
+  updateModeToggles();
+  renderLearn();
+}
+
+function updateModeToggles() {
+  var engToggle = document.getElementById('toggle-english');
+  var hanziToggle = document.getElementById('toggle-hanzi');
+  if (engToggle) engToggle.checked = learnShowEnglish;
+  if (hanziToggle) hanziToggle.checked = learnShowHanzi;
+}
+
 function renderLearn() {
   var list = learnRows();
   var wrap = document.getElementById("learn-wrap");
@@ -1036,12 +1101,26 @@ function renderLearn() {
   var row = list[learnIndex];
 
   card.innerHTML = "";
-  var en = document.createElement("div");
-  en.className = "en-big";
-  en.textContent = row.en;
-  card.appendChild(en);
 
-  if (row.hanzi) {
+  var showEverything = learnRevealed;
+  var showEnglish = showEverything || learnShowEnglish;
+  var showHanzi = showEverything || learnShowHanzi;
+
+  if (showEnglish) {
+    var en = document.createElement("div");
+    en.className = "en-big";
+    en.textContent = row.en;
+    card.appendChild(en);
+  }
+
+  if (showHanzi && row.hanzi) {
+    var hz = document.createElement("div");
+    hz.className = "hanzi-big";
+    hz.textContent = row.hanzi;
+    card.appendChild(hz);
+  }
+
+  if (row.hanzi && (showHanzi || showEnglish)) {
     var sayCard = document.createElement("button");
     sayCard.className = "btn say-card";
     sayCard.textContent = "🔊";
@@ -1050,25 +1129,18 @@ function renderLearn() {
     card.appendChild(sayCard);
   }
 
-  if (learnRevealed) {
-    if (row.hanzi) {
-      var hz = document.createElement("div");
-      hz.className = "hanzi-big";
-      hz.textContent = row.hanzi;
-      card.appendChild(hz);
-    }
-    if (row.pinyin) {
-      var py = document.createElement("div");
-      py.className = "pinyin-big";
-      py.textContent = row.pinyin;
-      card.appendChild(py);
-    }
-    if (row.note) {
-      var note = document.createElement("div");
-      note.className = "note-box";
-      note.textContent = row.note;
-      card.appendChild(note);
-    }
+  if (showHanzi && row.pinyin) {
+    var py = document.createElement("div");
+    py.className = "pinyin-big";
+    py.textContent = row.pinyin;
+    card.appendChild(py);
+  }
+
+  if (showEverything && row.note) {
+    var note = document.createElement("div");
+    note.className = "note-box";
+    note.textContent = row.note;
+    card.appendChild(note);
   }
 
   counter.textContent = "Card " + (learnIndex + 1) + " of " + list.length;
@@ -1085,6 +1157,9 @@ function renderLearn() {
   show.hidden = learnRevealed;
   show.addEventListener("click", function () {
     learnRevealed = true;
+    learnShowEnglish = true;
+    learnShowHanzi = true;
+    updateModeToggles();
     renderLearn();
   });
 
@@ -1113,6 +1188,9 @@ function navLearn(delta) {
   if (learnIndex < 0) learnIndex = len - 1;
   if (learnIndex >= len) learnIndex = 0;
   learnRevealed = false;
+  learnShowEnglish = true;
+  learnShowHanzi = false;
+  updateModeToggles();
   renderLearn();
 }
 
@@ -1128,6 +1206,9 @@ function switchTab(tab) {
   document.getElementById("tab-conflicts").classList.toggle("active", isConflicts);
   if (!isTable && !isConflicts) {
     learnRevealed = false;
+    learnShowEnglish = true;
+    learnShowHanzi = false;
+    updateModeToggles();
     renderLearn();
   }
   if (isConflicts) {
@@ -1390,6 +1471,9 @@ function applyBackupPayload(text) {
   rows = sheetById(currentSheetId).rows;
   learnIndex = 0;
   learnRevealed = false;
+  learnShowEnglish = true;
+  learnShowHanzi = false;
+  updateModeToggles();
   saveSheets();
   renderSheetSelect();
   renderTable();
@@ -2014,6 +2098,7 @@ loadDriveConfig();
 updateSyncMenu();
 if (driveIsConfigured()) startDriveAutoSync();
 loadTheme();
+updateModeToggles();
 renderSheetSelect();
 renderTable();
 watchForUpdates();
