@@ -398,6 +398,10 @@
           <label for="toggle-pinyin">Show Pinyin</label>
           <input type="checkbox" id="toggle-pinyin" onclick="toggleLearnMode('pinyin')">
         </div>
+        <div class="toggle-switch">
+          <label for="toggle-shuffle">Shuffle</label>
+          <input type="checkbox" id="toggle-shuffle" onclick="toggleShuffleMode()">
+        </div>
       </div>
       <div class="learn-card" id="learn-card"></div>
       <div class="card-counter" id="learn-counter"></div>
@@ -430,6 +434,8 @@ var learnRevealed = false;
 var learnShowEnglish = true;
 var learnShowHanzi = false;
 var learnShowPinyin = false;
+var learnShuffle = false;
+var shuffledIndices = [];
 
 /* Save a safety copy of the sheets store before it gets overwritten, so
    data can be recovered if a later save loses rows (e.g. an empty sheet
@@ -647,6 +653,8 @@ function restoreBackup() {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
+  learnShuffle = false;
+  shuffledIndices = [];
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
@@ -683,6 +691,8 @@ function switchSheet(id) {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
+  learnShuffle = false;
+  shuffledIndices = [];
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
@@ -1083,13 +1093,54 @@ function toggleLearnMode(field) {
   renderLearn();
 }
 
+function toggleShuffleMode() {
+  learnShuffle = !learnShuffle;
+  var shuffleToggle = document.getElementById('toggle-shuffle');
+  if (shuffleToggle) shuffleToggle.checked = learnShuffle;
+  if (learnShuffle) {
+    shuffleCards();
+  } else {
+    shuffledIndices = [];
+  }
+  learnIndex = 0;
+  learnRevealed = false;
+  learnShowEnglish = true;
+  learnShowHanzi = false;
+  learnShowPinyin = false;
+  updateModeToggles();
+  renderLearn();
+}
+
+function shuffleCards() {
+  var list = learnRows();
+  shuffledIndices = [];
+  for (var i = 0; i < list.length; i++) {
+    shuffledIndices.push(i);
+  }
+  for (var i = shuffledIndices.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var temp = shuffledIndices[i];
+    shuffledIndices[i] = shuffledIndices[j];
+    shuffledIndices[j] = temp;
+  }
+}
+
+function getCurrentCardIndex() {
+  if (learnShuffle && shuffledIndices.length > 0) {
+    return shuffledIndices[learnIndex] || 0;
+  }
+  return learnIndex;
+}
+
 function updateModeToggles() {
   var engToggle = document.getElementById('toggle-english');
   var hanziToggle = document.getElementById('toggle-hanzi');
   var pinyinToggle = document.getElementById('toggle-pinyin');
+  var shuffleToggle = document.getElementById('toggle-shuffle');
   if (engToggle) engToggle.checked = learnShowEnglish;
   if (hanziToggle) hanziToggle.checked = learnShowHanzi;
   if (pinyinToggle) pinyinToggle.checked = learnShowPinyin;
+  if (shuffleToggle) shuffleToggle.checked = learnShuffle;
 }
 
 function renderLearn() {
@@ -1109,7 +1160,8 @@ function renderLearn() {
   empty.hidden = true;
 
   if (learnIndex >= list.length) learnIndex = 0;
-  var row = list[learnIndex];
+  var actualIndex = getCurrentCardIndex();
+  var row = list[actualIndex];
 
   card.innerHTML = "";
 
@@ -1223,6 +1275,12 @@ function switchTab(tab) {
     learnShowEnglish = true;
     learnShowHanzi = false;
     learnShowPinyin = false;
+    learnIndex = 0;
+    if (learnShuffle) {
+      shuffleCards();
+    } else {
+      shuffledIndices = [];
+    }
     updateModeToggles();
     renderLearn();
   }
@@ -1489,6 +1547,8 @@ function applyBackupPayload(text) {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
+  learnShuffle = false;
+  shuffledIndices = [];
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
