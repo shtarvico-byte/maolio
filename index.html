@@ -394,6 +394,10 @@
           <label for="toggle-hanzi">Show Hanzi</label>
           <input type="checkbox" id="toggle-hanzi" onclick="toggleLearnMode('hanzi')">
         </div>
+        <div class="toggle-switch">
+          <label for="toggle-pinyin">Show Pinyin</label>
+          <input type="checkbox" id="toggle-pinyin" onclick="toggleLearnMode('pinyin')">
+        </div>
       </div>
       <div class="learn-card" id="learn-card"></div>
       <div class="card-counter" id="learn-counter"></div>
@@ -425,6 +429,7 @@ var learnIndex = 0;
 var learnRevealed = false;
 var learnShowEnglish = true;
 var learnShowHanzi = false;
+var learnShowPinyin = false;
 
 /* Save a safety copy of the sheets store before it gets overwritten, so
    data can be recovered if a later save loses rows (e.g. an empty sheet
@@ -641,6 +646,7 @@ function restoreBackup() {
   learnRevealed = false;
   learnShowEnglish = true;
   learnShowHanzi = false;
+  learnShowPinyin = false;
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
@@ -676,6 +682,7 @@ function switchSheet(id) {
   learnRevealed = false;
   learnShowEnglish = true;
   learnShowHanzi = false;
+  learnShowPinyin = false;
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
@@ -1069,6 +1076,8 @@ function toggleLearnMode(field) {
     learnShowEnglish = !learnShowEnglish;
   } else if (field === 'hanzi') {
     learnShowHanzi = !learnShowHanzi;
+  } else if (field === 'pinyin') {
+    learnShowPinyin = !learnShowPinyin;
   }
   updateModeToggles();
   renderLearn();
@@ -1077,8 +1086,10 @@ function toggleLearnMode(field) {
 function updateModeToggles() {
   var engToggle = document.getElementById('toggle-english');
   var hanziToggle = document.getElementById('toggle-hanzi');
+  var pinyinToggle = document.getElementById('toggle-pinyin');
   if (engToggle) engToggle.checked = learnShowEnglish;
   if (hanziToggle) hanziToggle.checked = learnShowHanzi;
+  if (pinyinToggle) pinyinToggle.checked = learnShowPinyin;
 }
 
 function renderLearn() {
@@ -1105,6 +1116,7 @@ function renderLearn() {
   var showEverything = learnRevealed;
   var showEnglish = showEverything || learnShowEnglish;
   var showHanzi = showEverything || learnShowHanzi;
+  var showPinyin = showEverything || learnShowPinyin;
 
   if (showEnglish) {
     var en = document.createElement("div");
@@ -1129,7 +1141,7 @@ function renderLearn() {
     card.appendChild(sayCard);
   }
 
-  if (showHanzi && row.pinyin) {
+  if (showPinyin && row.pinyin) {
     var py = document.createElement("div");
     py.className = "pinyin-big";
     py.textContent = row.pinyin;
@@ -1159,6 +1171,7 @@ function renderLearn() {
     learnRevealed = true;
     learnShowEnglish = true;
     learnShowHanzi = true;
+    learnShowPinyin = true;
     updateModeToggles();
     renderLearn();
   });
@@ -1190,6 +1203,7 @@ function navLearn(delta) {
   learnRevealed = false;
   learnShowEnglish = true;
   learnShowHanzi = false;
+  learnShowPinyin = false;
   updateModeToggles();
   renderLearn();
 }
@@ -1208,6 +1222,7 @@ function switchTab(tab) {
     learnRevealed = false;
     learnShowEnglish = true;
     learnShowHanzi = false;
+    learnShowPinyin = false;
     updateModeToggles();
     renderLearn();
   }
@@ -1473,6 +1488,7 @@ function applyBackupPayload(text) {
   learnRevealed = false;
   learnShowEnglish = true;
   learnShowHanzi = false;
+  learnShowPinyin = false;
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
