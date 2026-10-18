@@ -1766,6 +1766,7 @@ function mergeData(localSheets, remoteData) {
           var ld = (localRow.en||"")+"|"+(localRow.pinyin||"")+"|"+(localRow.hanzi||"")+"|"+(localRow.note||"");
           var rd = (remoteRow.en||"")+"|"+(remoteRow.pinyin||"")+"|"+(remoteRow.hanzi||"")+"|"+(remoteRow.note||"");
           if (ld === rd) mergedRows.push(localRow);
+          else if (!(remoteRow.en||"").trim() && !(remoteRow.pinyin||"").trim() && !(remoteRow.hanzi||"").trim() && !(remoteRow.note||"").trim()) mergedRows.push(localRow);
           else {
             conflicts.push({sheetId: sheetId, rowId: rowId, local: localRow, remote: remoteRow});
             mergedRows.push(localRow);
