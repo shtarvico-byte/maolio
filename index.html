@@ -1728,6 +1728,7 @@ function pruneDeletedRows() {
 }
 function mergeData(localSheets, remoteData) {
   var localById = {}; var remoteById = {}; var allSheetIds = {}; var mergedSheets = []; var deviceName = getDeviceId();
+  var mergedConflicts = [];
   var tombstones = {};
   deletedRows.forEach(function (d) { tombstones[d.id] = true; });
   (remoteData.deleted || []).forEach(function (d) { tombstones[d.id] = true; });
@@ -1768,7 +1769,7 @@ function mergeData(localSheets, remoteData) {
           if (ld === rd) mergedRows.push(localRow);
           else if (!(remoteRow.en||"").trim() && !(remoteRow.pinyin||"").trim() && !(remoteRow.hanzi||"").trim() && !(remoteRow.note||"").trim()) mergedRows.push(localRow);
           else {
-            conflicts.push({sheetId: sheetId, rowId: rowId, local: localRow, remote: remoteRow});
+            mergedConflicts.push({sheetId: sheetId, rowId: rowId, local: localRow, remote: remoteRow});
             mergedRows.push(localRow);
             var cr = JSON.parse(JSON.stringify(remoteRow));
             cr.id = rowId + "-conflict-" + deviceName;
@@ -1782,7 +1783,7 @@ function mergeData(localSheets, remoteData) {
     }
   }
   (remoteData.sheets || []).forEach(function(s) { if (!localById[s.id] && !allSheetIds[s.id]) mergedSheets.push(s); });
-  return { sheets: mergedSheets, currentSheetId: currentSheetId || remoteData.currentSheetId || localSheets[0].id, conflicts: conflicts };
+  return { sheets: mergedSheets, currentSheetId: currentSheetId || remoteData.currentSheetId || localSheets[0].id, conflicts: mergedConflicts };
 }
 
 function syncNow() {
@@ -1873,7 +1874,12 @@ var driveToken = null;
 var driveTokenExpiresAt = 0;
 var driveTokenClient = null;
 var driveSyncInFlight = false;
+var driveSyncManual = false;
 var driveLastSyncAt = 0;
+var driveAuthRetryAt = 0;
+var driveAuthNeeded = false;
+var driveDirtyAt = 0;
+var driveIgnoreDirty = false;
 var DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.appdata";
 
 function loadDriveConfig() {
@@ -1893,12 +1899,15 @@ function saveDriveConfig(cfg) {
 
 function driveIsConfigured() { return !!(driveConfig && driveConfig.clientId); }
 
-function driveEnsureToken() {
+function driveNeedsAuthBackoff() { return Date.now() < driveAuthRetryAt; }
+function driveSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function driveEnsureToken(manual) {
   if (driveToken && Date.now() < driveTokenExpiresAt - 60000) return Promise.resolve(driveToken);
   return new Promise(function (resolve, reject) {
     if (!window.google || !google.accounts || !google.accounts.oauth2) {
       reject(new Error("Google login script not loaded (offline?)")); return;
     }
+    if (driveNeedsAuthBackoff()) { reject(new Error("auth-cancelled")); return; }
     if (!driveTokenClient) {
       driveTokenClient = google.accounts.oauth2.initTokenClient({
         client_id: driveConfig.clientId,
@@ -1906,40 +1915,75 @@ function driveEnsureToken() {
         callback: function (resp) {}
       });
     }
-    /* silent attempt first: no popup if we still have a valid session */
     driveTokenClient.callback = function (resp) {
       if (resp && resp.access_token) {
         driveToken = resp.access_token;
         driveTokenExpiresAt = Date.now() + ((resp.expires_in || 3600) * 1000);
+        driveAuthRetryAt = 0;
+        driveAuthNeeded = false;
         resolve(driveToken);
       } else {
-        reject(new Error("Google sign-in was not completed"));
+        var err = (resp && (resp.error || resp.error_description)) || "Google sign-in was not completed";
+        if (err === "popup_closed_by_user" || err === "access_denied" || err === "popup_failed_to_open" || err === "popup_closed") {
+          /* user dismissed the prompt (or a popup blocker killed it) - back off, do not hammer */
+          driveAuthRetryAt = Date.now() + 5 * 60 * 1000;
+        }
+        driveToken = null; driveTokenExpiresAt = 0;
+        reject(new Error(String(err)));
       }
     };
     driveTokenClient.requestAccessToken({ prompt: "" });
   });
 }
-
-function driveApi(path, options) {
+var DRIVE_FETCH_TIMEOUT = 30000;
+function driveApiOnce(path, options) {
   var opts = options || {};
   var headers = opts.headers || {};
   headers.Authorization = "Bearer " + driveToken;
   opts.headers = headers;
-  return fetch("https://www.googleapis.com/" + path, opts).then(function (res) {
-    if (res.status === 401) { driveToken = null; driveTokenExpiresAt = 0; }
-    if (!res.ok) throw new Error("Drive HTTP " + res.status);
+  if (typeof AbortController !== "undefined") {
+    var ctl = new AbortController();
+    opts.signal = ctl.signal;
+    var timer = setTimeout(function () { ctl.abort(); }, DRIVE_FETCH_TIMEOUT);
+    return fetch("https://www.googleapis.com/" + path, opts).then(function (res) {
+      clearTimeout(timer); return res;
+    }, function (err) { clearTimeout(timer); throw err; });
+  }
+  return fetch("https://www.googleapis.com/" + path, opts);
+}
+function driveApi(path, options, attempt) {
+  attempt = attempt || 0;
+  return driveApiOnce(path, options).then(function (res) {
+    if (res.status === 401) {
+      driveToken = null; driveTokenExpiresAt = 0;
+      if (attempt === 0 && !driveNeedsAuthBackoff()) {
+        /* one retry with a fresh token */
+        return driveEnsureToken(false).then(function () {
+          return driveApi(path, options, attempt + 1);
+        }, function () { throw new Error("Drive HTTP 401"); });
+      }
+      driveAuthNeeded = true;
+      throw new Error("Drive HTTP 401");
+    }
+    if (!res.ok) {
+      if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+        var retryAfter = res.headers.get("Retry-After");
+        var delay = retryAfter ? (parseInt(retryAfter, 10) || 1) * 1000 : [1000, 2000, 4000][attempt];
+        return driveSleep(delay).then(function () { return driveApi(path, options, attempt + 1); });
+      }
+      throw new Error("Drive HTTP " + res.status);
+    }
     return res;
   });
 }
-
-/* Find the app's backup file inside appDataFolder. */
+/* Find the app's backup file inside appDataFolder; newest first so duplicate
+   files (e.g. from a create race) never fork history. */
 function driveFindFile() {
   var q = encodeURIComponent("name = '" + driveConfig.fileName + "'");
-  return driveApi("drive/v3/files?q=" + q + "&spaces=appDataFolder&fields=files(id,name,modifiedTime)&pageSize=10")
+  return driveApi("drive/v3/files?q=" + q + "&spaces=appDataFolder&fields=files(id,name,modifiedTime)&pageSize=10&orderBy=modifiedTime%20desc")
     .then(function (res) { return res.json(); })
     .then(function (data) { return (data.files && data.files[0]) || null; });
 }
-
 function driveDownload(fileId) {
   return driveApi("drive/v3/files/" + fileId + "?alt=media")
     .then(function (res) { return res.text(); })
@@ -1950,7 +1994,6 @@ function driveDownload(fileId) {
       return d;
     });
 }
-
 function driveUpload(content) {
   return driveFindFile().then(function (meta) {
     if (meta) {
@@ -1971,21 +2014,61 @@ function driveUpload(content) {
     });
   });
 }
-
+function driveContentString(data) {
+  return JSON.stringify({ sheets: data.sheets || [], currentSheetId: data.currentSheetId || null, deleted: data.deleted || [] });
+}
+function applyMergedRemote(remoteData) {
+  var merged = mergeData(sheets, remoteData);
+  conflicts = merged.conflicts || [];
+  sheets = merged.sheets;
+  currentSheetId = merged.currentSheetId || currentSheetId;
+  if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
+  rows = sheetById(currentSheetId).rows;
+  driveIgnoreDirty = true;
+  saveSheets();
+  driveIgnoreDirty = false;
+  driveDirtyAt = 0;
+  renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+}
+/* Push the merged state, then verify our write survived (no concurrent
+   overwrite). If another device wrote in between, re-merge and retry. */
+function drivePushVerified(remoteData, attempt) {
+  var localContent = driveContentString({ sheets: sheets, currentSheetId: currentSheetId, deleted: deletedRows });
+  if (remoteData && driveContentString(remoteData) === localContent) return Promise.resolve(false);
+  var savedAt = new Date().toISOString();
+  var payload = JSON.stringify({ app: "maolio", version: 1, savedAt: savedAt,
+    deviceId: getDeviceId(), sheets: sheets, currentSheetId: currentSheetId, deleted: deletedRows });
+  return driveUpload(payload).then(function () {
+    return driveFindFile().then(function (meta2) {
+      if (!meta2) throw new Error("Backup file disappeared from Drive");
+      return driveDownload(meta2.id);
+    }).then(function (nowRemote) {
+      if (nowRemote.savedAt === savedAt) return true;
+      if (attempt >= 2) throw new Error("Remote changed repeatedly during sync - run Drive Sync Now again");
+      applyMergedRemote(nowRemote);
+      return drivePushVerified(nowRemote, attempt + 1);
+    });
+  });
+}
 /* Full Drive sync: pull remote, merge with local (never drop local data),
    then push the merged state. A local safety backup is taken first. */
 function driveSyncNow(manual) {
   if (!driveIsConfigured()) return Promise.resolve(false);
   if (driveSyncInFlight) return Promise.resolve(false);
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    if (manual) showSyncBanner("You are offline - sync will run again automatically when you reconnect.");
+    return Promise.resolve(false);
+  }
   driveSyncInFlight = true;
-  var hadConflictsBefore = conflicts.length > 0;
-  return driveEnsureToken().then(function () {
+  driveSyncManual = !!manual;
+  var syncStartAt = Date.now();
+  return driveEnsureToken(manual).then(function () {
     return driveFindFile();
   }).then(function (meta) {
     if (!meta) {
       /* first sync: push local state as the initial remote backup */
       backupSheets();
-      return driveUpload(buildSyncPayload()).then(function () {
+      return drivePushVerified(null, 0).then(function () {
         driveLastSyncAt = Date.now();
         if (manual) showSyncBanner("Drive sync: initial backup uploaded");
         return true;
@@ -1993,57 +2076,54 @@ function driveSyncNow(manual) {
     }
     return driveDownload(meta.id).then(function (remoteData) {
       backupSheets();
-      conflicts = [];
-      var merged = mergeData(sheets, remoteData);
-      conflicts = merged.conflicts || [];
-      sheets = merged.sheets;
-      currentSheetId = merged.currentSheetId || currentSheetId;
-      if (!sheets.some(function (s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
-      rows = sheetById(currentSheetId).rows;
-      saveSheets();
-      renderSheetSelect();
-      renderTable();
-      renderLearn();
-      updateConflictsTab();
-      return driveUpload(buildSyncPayload()).then(function () {
+      applyMergedRemote(remoteData);
+      return drivePushVerified(remoteData, 0).then(function (pushed) {
         driveLastSyncAt = Date.now();
         if (manual) {
           if (conflicts.length > 0) showSyncBanner("Drive sync complete with " + conflicts.length + " conflict(s). Check the Conflicts tab.");
-          else showSyncBanner("Drive sync complete!");
+          else showSyncBanner(pushed ? "Drive sync complete!" : "Drive sync complete (already up to date).");
         }
         return true;
       });
     });
   }).catch(function (e) {
-    if (manual) showSyncBanner("Drive sync error: " + (e.message || e));
+    var msg = (e && e.message) || String(e);
+    if (manual) {
+      if (msg === "auth-cancelled") showSyncBanner("Google Drive sign-in was cancelled. Try Drive Sync Now in a few minutes.");
+      else if (msg === "Drive HTTP 401") showSyncBanner("Google Drive needs you to sign in again - run Drive Sync Now to reconnect.");
+      else showSyncBanner("Drive sync error: " + msg);
+    }
     return false;
   }).then(function (ok) {
     driveSyncInFlight = false;
+    driveSyncManual = false;
+    updateSyncMenu();
+    /* if the user edited while a sync was running, run another pass */
+    if (driveDirtyAt > syncStartAt) scheduleDriveSync();
     return ok;
   });
 }
-
 /* Auto-sync loop: run shortly after edits (scheduleSync hook), plus a
    periodic pull so changes made on other devices appear automatically. */
 var driveAutoTimer = null;
 function scheduleDriveSync() {
   if (!driveIsConfigured()) return;
+  if (!driveIgnoreDirty) driveDirtyAt = Date.now();
   if (driveAutoTimer) clearTimeout(driveAutoTimer);
   driveAutoTimer = setTimeout(function () { driveSyncNow(false); }, 5000);
 }
-
 var driveIntervalTimer = null;
 function startDriveAutoSync() {
   if (!driveIsConfigured()) return;
   if (driveIntervalTimer) return;
   driveSyncNow(false);
-  driveIntervalTimer = setInterval(function () { driveSyncNow(false); }, 30000);
+  /* per-device jitter so multiple devices don't sync in lockstep */
+  var jitter = Math.floor(Math.random() * 10000);
+  driveIntervalTimer = setInterval(function () { driveSyncNow(false); }, 30000 + jitter);
 }
-
 function stopDriveAutoSync() {
   if (driveIntervalTimer) { clearInterval(driveIntervalTimer); driveIntervalTimer = null; }
 }
-
 function driveSyncNowManual() {
   if (!driveIsConfigured()) { alert("Google Drive sync is not configured."); return; }
   if (driveSyncInFlight) { showSyncBanner("Drive sync already running..."); return; }
@@ -2105,6 +2185,7 @@ function saveDriveSetup() {
     return;
   }
   saveDriveConfig({ clientId: cid, fileName: "maolio-backup.json" });
+  driveAuthRetryAt = 0; driveAuthNeeded = false; driveToken = null; driveTokenExpiresAt = 0;
   closeDriveModal();
   showSyncBanner("Connecting to Google Drive...");
   driveSyncNow(true).then(function (ok) {
@@ -2167,6 +2248,16 @@ function cleanupConflictArtifacts() {
 
 /* ---------- Init ---------- */
 
+function driveLastSyncAgoText() {
+  if (!driveLastSyncAt) return "never";
+  var secs = Math.max(0, Math.floor((Date.now() - driveLastSyncAt) / 1000));
+  if (secs < 60) return secs + "s ago";
+  var mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + "m ago";
+  return Math.floor(mins / 60) + "h ago";
+}
+setInterval(function () { if (driveIsConfigured()) updateSyncMenu(); }, 30000);
+window.addEventListener("online", function () { if (driveIsConfigured()) driveSyncNow(false); });
 loadSheets();
 loadDeletedRows();
 cleanupConflictArtifacts();
