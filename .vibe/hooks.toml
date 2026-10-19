@@ -1,0 +1,32 @@
+# Guardrails for Maolio. Project-level; loaded only in trusted folders.
+# Docs: https://docs.mistral.ai/vibe/code/cli/hooks
+
+# 1. Guard BEFORE any tool runs: protect the guardrails themselves
+#    and block dangerous shell commands.
+[[hooks]]
+name = "protect-paths"
+type = "pre_tool"
+match = "*"
+command = "node .vibe/protect-paths.mjs"
+timeout = 10.0
+strict = true
+description = "Deny edits to guardrail files and dangerous bash commands."
+
+# 2. Fast check AFTER each edit/write: syntax + structure of the touched file.
+[[hooks]]
+name = "fast-check"
+type = "post_tool"
+match = "re:.*(edit|write|file).*"
+command = "node .vibe/check.mjs fast"
+timeout = 30.0
+strict = true
+description = "Fast checks (syntax, structure) on the edited file."
+
+# 3. Full check AFTER each agent turn: everything, incl. secret scan.
+[[hooks]]
+name = "full-check"
+type = "post_agent"
+command = "node .vibe/check.mjs full"
+timeout = 120.0
+strict = true
+description = "Full check must be green before the agent may finish."
