@@ -2,21 +2,32 @@
 // Check script for Maolio. Modes: fast (after edit), full (before completion, CI).
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+
+const MODE = process.argv[2] || "full";
+const FAST_CHECKS = ["js-syntax", "html-script-syntax", "html-structure", "manifest"];
+const FULL_CHECKS = [...FAST_CHECKS, "secret-scan", "test-page"];
+const CHECKS_TO_RUN = MODE === "fast" ? FAST_CHECKS : FULL_CHECKS;
+
 const failures = [];
 const run = (name, fn) => {
+  if (!CHECKS_TO_RUN.includes(name)) return;
   try { fn(); console.log("ok   " + name); }
   catch (e) { failures.push(name + ": " + e.message); console.error("FAIL " + name + ": " + e.message); }
 };
+
 // 1. JS syntax check on every standalone .js file.
 run("js-syntax", () => {
   for (const f of ["sw.js"]) { execFileSync("node", ["--check", f], { stdio: "pipe" }); }
 });
+
 // 2. Inline <script> blocks in index.html: syntax check.
 run("html-script-syntax", () => {
   const html = readFileSync("index.html", "utf8");
   const blocks = [...html.matchAll(/<script(?![^>]*src)[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
   blocks.forEach((code) => { new Function(code); });
 });
+
 // 3. Basic HTML structure checks.
 run("html-structure", () => {
   const html = readFileSync("index.html", "utf8");
@@ -25,13 +36,15 @@ run("html-structure", () => {
   const close = (html.match(/<\/div>/gi) || []).length;
   if (open !== close) throw new Error("<div> mismatch: " + open + " open vs " + close + " close");
 });
+
 // 4. Manifest sanity.
 run("manifest", () => {
   const m = JSON.parse(readFileSync("manifest.json", "utf8"));
   for (const key of ["name", "start_url", "display", "icons"])
     if (!(key in m)) throw new Error('manifest.json missing "' + key + '"');
 });
-// 5. Secret scan.
+
+// 5. Secret scan - only in full mode.
 run("secret-scan", () => {
   const patterns = [
     /AIza[0-9A-Za-z_-]{35}/,
@@ -45,6 +58,12 @@ run("secret-scan", () => {
     for (const p of patterns) if (p.test(text)) throw new Error("possible secret in " + f);
   }
 });
-// 6. Test suite present.
+
+// 6. Test suite present - only in full mode.
 run("test-page", () => { statSync("test-maolio.html"); });
-process.exit(failures.length ? 1 : 0);
+
+if (failures.length > 0) {
+  console.error("\n" + failures.length + " check(s) failed. Run 'node .vibe/check.mjs full' for details.");
+  process.exit(1);
+}
+process.exit(0);
