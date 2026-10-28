@@ -759,6 +759,9 @@ function renderTable() {
     var tdHz = document.createElement("td");
     tdHz.className = "zh";
     var inputHz = cellInput(row, "hanzi", "pinyin hanzi");
+    inputHz.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); translateRow(i); }
+    });
     tdHz.appendChild(inputHz);
 
     var tdNote = document.createElement("td");
@@ -878,9 +881,56 @@ function setRowStatus(id, text, isError) {
 
 /* ---------- Auto-translate ---------- */
 
+/* Reverse auto-translate: only the hanzi cell is filled (English, pinyin
+   and note empty) - look up the English meaning and pinyin for it. */
+function rowNeedsHanziFill(row) {
+  return hasHan(row.hanzi || "") && !(row.en || "").trim() &&
+    !(row.pinyin || "").trim() && !(row.note || "").trim();
+}
+function hanziToEnglish(hanzi) {
+  var url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=en&dt=t&dt=rm&q=" +
+    encodeURIComponent(hanzi);
+  return fetch(url)
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      var en = "";
+      var pinyin = "";
+      for (var j = 0; j < data[0].length; j++) {
+        if (data[0][j] && data[0][j][0]) en += data[0][j][0];
+        if (data[0][j] && data[0][j][3]) pinyin += data[0][j][3] + " ";
+      }
+      en = en.trim();
+      if (!en) throw new Error("no english result");
+      return { en: en, pinyin: pinyin.trim() || null };
+    });
+}
+function translateRowFromHanzi(i) {
+  var row = rows[i];
+  if (!row) return;
+  var hz = (row.hanzi || "").trim();
+  if (!hz) return;
+  setRowStatus(row.id, "…");
+  hanziToEnglish(hz)
+    .then(function (r) {
+      applyTranslation(i, null, r.pinyin);
+      if (r.en && !row.en) { row.en = r.en; saveRows(); renderTable(); }
+      return buildNote(hz);
+    })
+    .then(function (note) {
+      if (note) applyTranslation(i, null, null, note);
+      setRowStatus(row.id, "");
+    })
+    .catch(function () {
+      setRowStatus(row.id, "Lookup failed — check your connection, or fill in manually", true);
+    });
+}
 function translateRow(i) {
   var row = rows[i];
   if (!row) return;
+  if (rowNeedsHanziFill(row)) return translateRowFromHanzi(i);
   var q = (row.en || "").trim();
   if (!q) return;
   setRowStatus(row.id, "…");
@@ -1876,8 +1926,23 @@ var driveAuthRetryAt = 0;
 var driveAuthNeeded = false;
 var driveDirtyAt = 0;
 var driveIgnoreDirty = false;
+/* Highest remote payload sequence number applied or uploaded on this device.
+   Payloads with a lower seq are stale copies of an older state and must
+   never be merged back in (they duplicate rows). */
+var driveMaxSeqSeen = 0;
+var DRIVE_SEQ_KEY = "maolio-drive-max-seq";
 var DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.appdata";
 
+function loadDriveMaxSeq() {
+  try {
+    var raw = localStorage.getItem(DRIVE_SEQ_KEY);
+    var n = raw ? parseInt(raw, 10) : 0;
+    if (isFinite(n) && n > 0) driveMaxSeqSeen = n;
+  } catch (e) { /* keep 0 */ }
+}
+function saveDriveMaxSeq() {
+  try { localStorage.setItem(DRIVE_SEQ_KEY, String(driveMaxSeqSeen)); } catch (e) {}
+}
 function loadDriveConfig() {
   try {
     var raw = localStorage.getItem(DRIVE_CONFIG_KEY);
@@ -1987,6 +2052,11 @@ function driveDownload(fileId) {
       var d;
       try { d = JSON.parse(text); } catch (e) { throw new Error("Backup file is not valid JSON"); }
       if (!d || !Array.isArray(d.sheets)) throw new Error("Backup file has wrong format");
+      /* Sequence numbers are assigned on every successful merge/upload and
+         increase strictly, so a payload with a lower number than one we have
+         already applied is a stale copy of an older state (e.g. Drive serving
+         a cached pre-upload read during verify). Never merge those back in. */
+      if (typeof d.seq !== "number" || d.seq < 0) d.seq = 0;
       return d;
     });
 }
@@ -2014,6 +2084,13 @@ function driveContentString(data) {
   return JSON.stringify({ sheets: data.sheets || [], currentSheetId: data.currentSheetId || null, deleted: data.deleted || [] });
 }
 function applyMergedRemote(remoteData) {
+  if (typeof (remoteData && remoteData.seq) !== "number" || remoteData.seq < driveMaxSeqSeen) {
+    /* Stale remote payload: our local state already includes everything in
+       it. Applying it again would resurrect rows we already merged away (the
+       "new rows suddenly multiply" symptom). Skip and keep local state. */
+    return false;
+  }
+  if (remoteData.seq > driveMaxSeqSeen) { driveMaxSeqSeen = remoteData.seq; saveDriveMaxSeq(); }
   var merged = mergeData(sheets, remoteData);
   conflicts = merged.conflicts || [];
   sheets = merged.sheets;
@@ -2025,6 +2102,7 @@ function applyMergedRemote(remoteData) {
   driveIgnoreDirty = false;
   driveDirtyAt = 0;
   renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+  return true;
 }
 /* Push the merged state, then verify our write survived (no concurrent
    overwrite). If another device wrote in between, re-merge and retry. */
@@ -2033,16 +2111,28 @@ function drivePushVerified(remoteData, attempt) {
   if (remoteData && driveContentString(remoteData) === localContent) return Promise.resolve(false);
   var savedAt = new Date().toISOString();
   var payload = JSON.stringify({ app: "maolio", version: 1, savedAt: savedAt,
+    seq: (remoteData && typeof remoteData.seq === "number" ? remoteData.seq : driveMaxSeqSeen) + 1,
     deviceId: getDeviceId(), sheets: sheets, currentSheetId: currentSheetId, deleted: deletedRows });
+  var pushedSeq = JSON.parse(payload).seq;
   return driveUpload(payload).then(function () {
     return driveFindFile().then(function (meta2) {
       if (!meta2) throw new Error("Backup file disappeared from Drive");
       return driveDownload(meta2.id);
     }).then(function (nowRemote) {
-      if (nowRemote.savedAt === savedAt) return true;
-      if (attempt >= 2) throw new Error("Remote changed repeatedly during sync - run Drive Sync Now again");
-      applyMergedRemote(nowRemote);
-      return drivePushVerified(nowRemote, attempt + 1);
+      if (nowRemote.savedAt === savedAt) {
+        /* Our own write is confirmed; never merge this payload back in. */
+        if (pushedSeq > driveMaxSeqSeen) { driveMaxSeqSeen = pushedSeq; saveDriveMaxSeq(); }
+        return true;
+      }
+      if (typeof nowRemote.seq === "number" && nowRemote.seq >= pushedSeq) {
+        /* A genuinely newer state from another device won the race. */
+        applyMergedRemote(nowRemote);
+        return drivePushVerified(nowRemote, attempt + 1);
+      }
+      /* Stale read (older than what we just uploaded): our upload is fine,
+         keep local state and finish. */
+      if (pushedSeq > driveMaxSeqSeen) { driveMaxSeqSeen = pushedSeq; saveDriveMaxSeq(); }
+      return true;
     });
   });
 }
@@ -2072,8 +2162,8 @@ function driveSyncNow(manual) {
     }
     return driveDownload(meta.id).then(function (remoteData) {
       backupSheets();
-      applyMergedRemote(remoteData);
-      return drivePushVerified(remoteData, 0).then(function (pushed) {
+      var applied = applyMergedRemote(remoteData);
+      return drivePushVerified(applied ? remoteData : null, 0).then(function (pushed) {
         driveLastSyncAt = Date.now();
         if (manual) {
           if (conflicts.length > 0) showSyncBanner("Drive sync complete with " + conflicts.length + " conflict(s). Check the Conflicts tab.");
@@ -2259,6 +2349,7 @@ loadDeletedRows();
 cleanupConflictArtifacts();
 loadSyncConfig();
 loadDriveConfig();
+loadDriveMaxSeq();
 updateSyncMenu();
 if (driveIsConfigured()) startDriveAutoSync();
 loadTheme();
