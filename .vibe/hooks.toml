@@ -1,0 +1,45 @@
+# Guardrails for Maolio. Project-level; loaded only in trusted folders.
+# Docs: https://docs.mistral.ai/vibe/code/cli/hooks
+
+# =============================================================================
+# PRE-TOOL GUARDS
+# =============================================================================
+
+# 1. Protect guardrail files and block dangerous commands before any tool runs.
+[[hooks]]
+name = "protect-paths"
+type = "pre_tool"
+match = "*"
+command = "node .vibe/protect-paths.mjs"
+timeout = 10.0
+strict = true
+description = "Deny edits to guardrail files (.vibe/, .github/, AGENTS.md) and dangerous bash commands (--no-verify, force push, rm -rf)."
+
+# =============================================================================
+# POST-TOOL CHECKS
+# =============================================================================
+
+# 2. Fast validation after file edits: syntax + structure checks only.
+#    Runs after edit/write operations to catch issues early.
+[[hooks]]
+name = "fast-check"
+type = "post_tool"
+match = "re:.*(edit|write|file).*"
+command = "node .vibe/check.mjs fast"
+timeout = 30.0
+strict = true
+description = "Fast checks (JS syntax, HTML structure, manifest) on edited files."
+
+# =============================================================================
+# POST-AGENT CHECKS
+# =============================================================================
+
+# 3. Comprehensive validation before agent completion: all checks including secret scan.
+#    Must pass before the agent can mark work as done.
+[[hooks]]
+name = "full-check"
+type = "post_agent"
+command = "node .vibe/check.mjs full"
+timeout = 120.0
+strict = true
+description = "Full validation (syntax, structure, manifest, secrets, tests) must pass before agent completion."
