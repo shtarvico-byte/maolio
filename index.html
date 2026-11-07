@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#e88504">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<title>Maolio — Chinese Vocabulary v6.0</title>
+<title>Maolio — Chinese Vocabulary v6.0 dev</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -458,6 +458,7 @@
 "use strict";
 
 var APP_VERSION = "6.0";
+var APP_BRANCH = "dev";
 var STORAGE_KEY = "zht-vocab-table-v1";
 var SHEETS_KEY = "zht-vocab-sheets-v1";
 var BACKUP_KEY = "zht-vocab-sheets-backup-v1";
@@ -1546,6 +1547,13 @@ function toggleTheme() {
   try { localStorage.setItem(THEME_KEY, currentTheme); } catch (e) { /* ignore */ }
 }
 
+function updateVersionDisplay() {
+  var versionEl = document.getElementById("app-version");
+  if (versionEl && APP_BRANCH) {
+    versionEl.textContent = "v" + APP_VERSION + " " + APP_BRANCH;
+  }
+}
+
 function loadTheme() {
   var saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch (e) { saved = null; }
@@ -2557,6 +2565,7 @@ if (typeof GitHubSync !== "undefined") {
 updateSyncMenu();
 if (driveIsConfigured() && (typeof GitHubSync === "undefined" || GitHubSync.activeBackend() !== "github")) startDriveAutoSync();
 loadTheme();
+updateVersionDisplay();
 updateModeToggles();
 renderSheetSelect();
 renderTable();
