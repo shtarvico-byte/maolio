@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#e88504">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<title>Maolio — Chinese Vocabulary v6.0 dev</title>
+<title>Maolio — Chinese Vocabulary</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -458,7 +458,14 @@
 "use strict";
 
 var APP_VERSION = "6.0";
-var APP_BRANCH = "dev";
+var APP_BRANCH = (function() {
+  var path = window.location.pathname;
+  if (path.includes("/dev/") || path.includes("/dev")) {
+    return "dev";
+  }
+  var params = new URLSearchParams(window.location.search);
+  return params.get("branch") || "";
+})();
 var STORAGE_KEY = "zht-vocab-table-v1";
 var SHEETS_KEY = "zht-vocab-sheets-v1";
 var BACKUP_KEY = "zht-vocab-sheets-backup-v1";
@@ -1549,9 +1556,14 @@ function toggleTheme() {
 
 function updateVersionDisplay() {
   var versionEl = document.getElementById("app-version");
-  if (versionEl && APP_BRANCH) {
-    versionEl.textContent = "v" + APP_VERSION + " " + APP_BRANCH;
+  var branch = APP_BRANCH;
+  var versionStr = "v" + APP_VERSION + (branch ? " " + branch : "");
+  
+  if (versionEl) {
+    versionEl.textContent = versionStr;
   }
+  
+  document.title = "Maolio — Chinese Vocabulary " + versionStr;
 }
 
 function loadTheme() {
