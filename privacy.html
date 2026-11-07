@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maolio — Privacy Policy</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #faf7f2; color: #2b2b2b; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { color: #c2410c; }
+  h2 { color: #c2410c; font-size: 1.1em; margin-top: 1.8em; }
+  a { color: #c2410c; }
+  .muted { color: #6b7280; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<main>
+<h1>🐯 Maolio — Privacy Policy</h1>
+<p><em>Effective date: 6 November 2026</em></p>
+
+<p>Maolio is a personal, browser-based vocabulary trainer for learning Mandarin Chinese.
+It is a static web app with <strong>no backend server, no user accounts, no cookies, no
+analytics and no advertising</strong>. This page explains exactly where your data goes.</p>
+
+<h2>Data stored on your device</h2>
+<p>Your vocabulary sheets are saved in your browser's <code>localStorage</code> on your own
+device, together with in-app backup copies. The optional file backup writes a
+<code>maolio-backup.json</code> file to a location you choose (e.g. your Downloads folder).
+None of this data is ever sent to the developer or to any server.</p>
+
+<h2>Optional Google Drive sync</h2>
+<p>If you connect Google Drive sync, Maolio stores a backup of your vocabulary in a hidden
+application data folder <strong>in your own Google Drive</strong>. The app can only read and
+write files it created there; it cannot see any of your other Drive files. The Google
+access token is held only in the browser's memory during your session and is not stored
+anywhere. You can revoke the app's access at any time in your
+<a href="https://myaccount.google.com/permissions">Google Account permissions</a> and
+delete the synced data by disconnecting the sync in the app.</p>
+
+<h2>Third-party network requests</h2>
+<p>Only two features send data over the internet, and only the word you are translating:</p>
+<ul>
+<li><strong>Auto-translate (译)</strong>: the word or phrase you typed is sent to the Google
+Translate public endpoint, with MyMemory as a fallback, to fetch the translation.</li>
+<li><strong>Pronunciation (▶)</strong>: uses your browser's built-in speech synthesis,
+which happens locally on your device.</li>
+</ul>
+<p>No other personal data is transmitted.</p>
+
+<h2>Data deletion</h2>
+<p>Clearing the browser's site data for this site permanently removes your vocabulary
+from that device. Restoring from, or deleting, the backup file is under your control.
+Drive-synced data disappears when you delete the app's folder from your Drive.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the updated version will be published on this page with a new
+effective date.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests regarding your data can be raised via the
+<a href="https://github.com/shtarvico-byte/maolio/issues">GitHub issue tracker</a>.</p>
+
+<p class="muted"><a href="https://shtarvico-byte.github.io/maolio/">← Back to Maolio</a></p>
+</main>
+</body>
+</html>
