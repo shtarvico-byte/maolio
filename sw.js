@@ -1,8 +1,9 @@
-var CACHE_NAME = "zht-vocab-v15";
+var CACHE_NAME = "zht-vocab-v16";
 /* Bump the version suffix (v1 → v2 → …) on every release so clients drop the old
    cache and fetch the updated app shell. */
 var APP_SHELL = [
   "index.html",
+  "sync-github.js",
   "manifest.json",
   "icon.svg",
   "icon-192.png",

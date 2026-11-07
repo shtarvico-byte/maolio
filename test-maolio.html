@@ -6,15 +6,257 @@
         body { font-family: Arial, sans-serif; padding: 20px; }
         iframe { width: 100%; height: 600px; border: 2px solid #ccc; }
         .instructions { background: #f0f0f0; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+        #test-results { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 5px; margin-bottom: 20px; white-space: pre-wrap; }
+        #test-results .pass { color: #4ade80; }
+        #test-results .fail { color: #f87171; }
     </style>
 </head>
 <body>
     <h1>Maolio Test Page</h1>
+    <div id="test-results">Running sync-github.js tests…</div>
     <div class="instructions">
         <p><strong>This tests if the Maolio app loads correctly.</strong></p>
         <p>If you see your vocabulary table below, the app is working.</p>
         <p>If it's blank or shows errors, there may be an issue.</p>
     </div>
     <iframe src="index.html"></iframe>
+
+<script>
+/* ---- Test harness: mock storage / fetch / confirm BEFORE loading the module,
+   so the tests never touch the real localStorage or network. ---- */
+(function () {
+  var mem = {};
+  window.GitHubSyncStorage = {
+    getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+    setItem: function (k, v) { mem[k] = String(v); },
+    removeItem: function (k) { delete mem[k]; },
+    _clear: function () { mem = {}; }
+  };
+  window.__fetchLog = [];
+  window.__fetchQueue = [];
+  window.GitHubSyncFetch = function (url, opts) {
+    window.__fetchLog.push({ url: url, method: (opts && opts.method) || "GET", opts: opts });
+    var next = window.__fetchQueue.shift();
+    if (!next) return Promise.resolve(window.__res(500, "no mock queued"));
+    return Promise.resolve(next);
+  };
+  window.__confirmQueue = [];
+  window.__confirmLog = [];
+  window.GitHubSyncConfirm = function (msg) {
+    window.__confirmLog.push(msg);
+    return window.__confirmQueue.length ? window.__confirmQueue.shift() : true;
+  };
+  window.__res = function (status, body) {
+    return {
+      status: status,
+      ok: status >= 200 && status < 300,
+      json: function () { return Promise.resolve(body); },
+      text: function () { return Promise.resolve(typeof body === "string" ? body : JSON.stringify(body)); }
+    };
+  };
+  window.__backups = 0;
+  window.backupSheets = function () { window.__backups++; };
+  window.saveSheets = function () {};
+})();
+</script>
+<script src="sync-github.js"></script>
+<script>
+(function () {
+  var results = [];
+  function report(name, ok, detail) {
+    results.push({ name: name, ok: ok, detail: detail || "" });
+  }
+  function assert(cond, detail) { if (!cond) throw new Error(detail || "assertion failed"); }
+  function mkRows(n, prefix) {
+    var rows = [];
+    for (var i = 1; i <= n; i++) rows.push({ id: (prefix || "r") + i, en: "w" + i, pinyin: "", hanzi: "", note: "", updatedAt: 100 });
+    return rows;
+  }
+  function reset(localSheets) {
+    window.GitHubSyncStorage._clear();
+    window.__fetchLog = [];
+    window.__fetchQueue = [];
+    window.__confirmQueue = [];
+    window.__confirmLog = [];
+    window.__backups = 0;
+    window.sheets = localSheets;
+    window.currentSheetId = localSheets.length ? localSheets[0].id : null;
+    GitHubSync._load();
+    GitHubSync._configure({ backend: "github", token: "test-pat", repo: "me/sync-repo", branch: "main", storage: "tester", connected: true });
+  }
+  function puts() {
+    return window.__fetchLog.filter(function (c) { return c.method === "PUT"; });
+  }
+  function decodePut(call) {
+    return JSON.parse(atob(JSON.parse(call.opts.body).content));
+  }
+
+  /* ---------- pure merge tests ---------- */
+  function testMerge() {
+    var base = { sheets: [{ id: "s1", name: "S1", rows: [
+      { id: "r1", en: "a", updatedAt: 100 },
+      { id: "r2", en: "b", updatedAt: 100 },
+      { id: "r3", en: "c", updatedAt: 100 }
+    ] }], currentSheetId: "s1" };
+    // row added remotely is kept
+    var remote = JSON.parse(JSON.stringify(base));
+    remote.sheets[0].rows.push({ id: "r4", en: "d", updatedAt: 150 });
+    var m = GitHubSync.mergeSheets(base, JSON.parse(JSON.stringify(base)), remote);
+    assert(m.sheets[0].rows.some(function (r) { return r.id === "r4"; }), "remote-added row missing");
+    // row edited locally (newer updatedAt), remote unchanged -> local wins
+    var local = JSON.parse(JSON.stringify(base));
+    local.sheets[0].rows[0].en = "a2"; local.sheets[0].rows[0].updatedAt = 200;
+    m = GitHubSync.mergeSheets(base, local, JSON.parse(JSON.stringify(base)));
+    assert(m.sheets[0].rows[0].en === "a2", "local edit lost");
+    // row deleted remotely, local unchanged -> deletion applied
+    remote = JSON.parse(JSON.stringify(base));
+    remote.sheets[0].rows.splice(1, 1); // delete r2
+    m = GitHubSync.mergeSheets(base, JSON.parse(JSON.stringify(base)), remote);
+    assert(!m.sheets[0].rows.some(function (r) { return r.id === "r2"; }), "remote deletion not applied");
+    // conflicting edits -> newer updatedAt wins
+    local = JSON.parse(JSON.stringify(base));
+    local.sheets[0].rows[2].en = "c-local"; local.sheets[0].rows[2].updatedAt = 300;
+    remote = JSON.parse(JSON.stringify(base));
+    remote.sheets[0].rows[2].en = "c-remote"; remote.sheets[0].rows[2].updatedAt = 200;
+    m = GitHubSync.mergeSheets(base, local, remote);
+    assert(m.sheets[0].rows[2].en === "c-local", "conflict: newer updatedAt should win");
+    m = GitHubSync.mergeSheets(base, remote, local);
+    assert(m.sheets[0].rows[2].en === "c-local", "conflict (swapped args): newer updatedAt should win");
+    // local deleted, remote edited -> edit survives
+    local = JSON.parse(JSON.stringify(base));
+    local.sheets[0].rows.splice(1, 1); // delete r2 locally
+    remote = JSON.parse(JSON.stringify(base));
+    remote.sheets[0].rows[1].en = "b2"; remote.sheets[0].rows[1].updatedAt = 200;
+    m = GitHubSync.mergeSheets(base, local, remote);
+    assert(m.sheets[0].rows.some(function (r) { return r.id === "r2" && r.en === "b2"; }), "edit-vs-delete: edit should win");
+    report("merge: remote add / local edit / remote delete / conflict newer-wins / edit-beats-delete", true);
+  }
+
+  /* ---------- API flow tests (mocked fetch) ---------- */
+  function testCreateOn404() {
+    reset([{ id: "s1", name: "S1", rows: mkRows(3) }]);
+    window.__fetchQueue = [
+      window.__res(404, "not found"),          // GET raw -> file does not exist yet
+      window.__res(404, "not found"),          // GET sha -> null -> create without sha
+      window.__res(201, { content: { sha: "new-sha" } }) // PUT create
+    ];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === true, "syncNow should succeed");
+      var p = puts();
+      assert(p.length === 1, "expected exactly one PUT, got " + p.length);
+      var body = JSON.parse(p[0].opts.body);
+      assert(!("sha" in body), "create PUT must not send a sha");
+      assert(body.branch === "main", "PUT must target the configured branch");
+      assert(p[0].opts.headers.Authorization === "Bearer test-pat", "PUT must send the Bearer token");
+      assert(p[0].url.indexOf("/repos/me/sync-repo/contents/data/tester/sheets.json?ref=main") !== -1, "wrong file path: " + p[0].url);
+      var pushed = decodePut(p[0]);
+      assert(pushed.sheets.length === 1 && pushed.sheets[0].rows.length === 3, "PUT content must be the local sheets store");
+      assert(GitHubSync.state().lastSyncAt > 0, "lastSyncAt should be set");
+      report("GET 404 -> PUT create (no sha), correct path/branch/auth, snapshot saved", true);
+    });
+  }
+  function testUpdateWithSha() {
+    // state from testCreateOn404: snapshot exists, remote now has an extra row
+    var putsBefore = puts().length;
+    window.__fetchQueue = [
+      window.__res(200, { sheets: [{ id: "s1", name: "S1", rows: mkRows(3).concat([{ id: "r9", en: "remote", updatedAt: 500 }]) }], currentSheetId: "s1" }), // GET raw
+      window.__res(200, { sha: "abc123" }),   // GET sha
+      window.__res(200, { content: { sha: "def456" } }) // PUT update
+    ];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === true, "syncNow should succeed");
+      var p = puts();
+      assert(p.length === putsBefore + 1, "expected one new PUT, got " + (p.length - putsBefore));
+      var body = JSON.parse(p[p.length - 1].opts.body);
+      assert(body.sha === "abc123", "update PUT must send the blob sha, got " + body.sha);
+      var pushed = decodePut(p[p.length - 1]);
+      assert(pushed.sheets[0].rows.some(function (r) { return r.id === "r9"; }), "merge should include the remote row in the push");
+      assert(window.sheets[0].rows.some(function (r) { return r.id === "r9"; }), "merge should apply the remote row locally");
+      report("update with blob SHA; remote row merged into local and pushed", true);
+    });
+  }
+  function testConflictRetry() {
+    // local edit not present remotely forces a push; remote has the r9 row from the previous test
+    window.sheets[0].rows[0].en = "w1-edited";
+    window.sheets[0].rows[0].updatedAt = 999;
+    var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(3).concat([{ id: "r9", en: "remote", updatedAt: 500 }]) }], currentSheetId: "s1" };
+    var putsBefore = puts().length;
+    window.__fetchQueue = [
+      window.__res(200, remote),                 // GET raw (pass 1)
+      window.__res(200, { sha: "s1" }),
+      window.__res(409, { message: "conflict" }), // PUT -> conflict
+      window.__res(200, remote),                 // GET raw (retry)
+      window.__res(200, { sha: "s2" }),
+      window.__res(200, { content: { sha: "s3" } }) // PUT retry succeeds
+    ];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === true, "syncNow should succeed after one retry");
+      var p = puts();
+      assert(p.length === putsBefore + 2, "expected 2 new PUTs (conflict + retry), got " + (p.length - putsBefore));
+      assert(JSON.parse(p[p.length - 1].opts.body).sha === "s2", "retry PUT must use the re-fetched sha");
+      report("409 conflict -> re-pull, merge, retry once", true);
+    });
+  }
+  function testAuthFailure() {
+    reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
+    window.__fetchQueue = [window.__res(401, { message: "Bad credentials" })];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === false, "syncNow should report failure");
+      assert(GitHubSync.state().needsReconnect === true, "401 must mark needs-reconnect");
+      assert(GitHubSync.isActive() === false, "auto-sync must stop after 401");
+      assert(puts().length === 0, "no PUT should be attempted after 401");
+      report("401 -> needs-reconnect state, auto-sync stopped, no push", true);
+    });
+  }
+  function testDeleteGuard() {
+    reset([{ id: "s1", name: "S1", rows: mkRows(10) }]); // 10 rows
+    window.__fetchQueue = [
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(201, {}) // initial upload -> snapshot
+    ];
+    return GitHubSync.syncNow(true).then(function () {
+      // remote now has only 4 of the 10 rows -> merge would delete 60%
+      var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(10).slice(0, 4) }], currentSheetId: "s1" };
+      var putsBefore = puts().length;
+      window.__fetchQueue = [window.__res(200, remote)];
+      window.__confirmQueue = [false]; // user declines
+      return GitHubSync.syncNow(true).then(function (ok) {
+        assert(ok === false, "guard-declined sync should abort");
+        assert(window.__confirmLog.length === 1, "deletion guard must ask for confirmation");
+        assert(window.sheets[0].rows.length === 10, "local rows must be untouched when guard declined");
+        assert(puts().length === putsBefore, "no push after aborted merge");
+        report("merge deleting >20% of rows requires confirmation; declined -> aborted, local intact", true);
+      });
+    });
+  }
+
+  function run() {
+    var out = document.getElementById("test-results");
+    function render() {
+      var failed = results.filter(function (r) { return !r.ok; });
+      out.innerHTML = results.map(function (r) {
+        return '<span class="' + (r.ok ? "pass" : "fail") + '">' + (r.ok ? "PASS" : "FAIL") + "</span>  " + r.name + (r.detail ? "\n     " + r.detail : "");
+      }).join("\n") + "\n\n" + (failed.length ? failed.length + " FAILED" : "ALL " + results.length + " TESTS PASSED");
+    }
+    var chain = Promise.resolve();
+    [
+      ["merge", function () { testMerge(); }],
+      ["create-on-404", testCreateOn404],
+      ["update-with-sha", testUpdateWithSha],
+      ["conflict-retry", testConflictRetry],
+      ["auth-401", testAuthFailure],
+      ["delete-guard", testDeleteGuard]
+    ].forEach(function (t) {
+      chain = chain.then(function () {
+        return Promise.resolve().then(t[1]).catch(function (e) {
+          report(t[0], false, (e && e.message) || String(e));
+        });
+      });
+    });
+    chain.then(render);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+  else run();
+})();
+</script>
 </body>
 </html>
