@@ -1874,32 +1874,49 @@ function loadSyncConfig() {
 }
 
 function updateSyncMenu() {
+  var activeBackend = typeof GitHubSync !== "undefined" ? GitHubSync.activeBackend() : "off";
+  
   var syncBtn = document.getElementById("menu-sync");
   var syncNowBtn = document.getElementById("menu-sync-now");
   if (syncBtn) {
     syncBtn.textContent = "Cloud Sync (URL): " + (syncUrl ? (syncEnabled ? "Enabled" : "Paused") : "Not configured");
   }
   if (syncNowBtn) { syncNowBtn.hidden = !syncUrl; }
+  
   var driveBtn = document.getElementById("menu-drive");
   var driveOffBtn = document.getElementById("menu-drive-disconnect");
-  if (driveBtn) driveBtn.textContent = "\u2601 Google Drive Sync: " + (driveIsConfigured() ? "Enabled" : "Not configured");
-  if (driveOffBtn) driveOffBtn.hidden = !driveIsConfigured();
+  var driveConfigured = driveIsConfigured();
+  
+  if (driveBtn) {
+    if (activeBackend === "drive" && driveConfigured) {
+      driveBtn.textContent = "\u2601 Google Drive Sync: Enabled";
+    } else {
+      driveBtn.textContent = "\u2601 Google Drive Sync: Not configured";
+    }
+  }
+  if (driveOffBtn) driveOffBtn.hidden = !(activeBackend === "drive" && driveConfigured);
   var driveRestoreBtn = document.getElementById("menu-drive-restore");
-  if (driveRestoreBtn) driveRestoreBtn.hidden = !driveIsConfigured();
+  if (driveRestoreBtn) driveRestoreBtn.hidden = !(activeBackend === "drive" && driveConfigured);
   var driveSyncNowBtn = document.getElementById("menu-drive-sync-now");
-  if (driveSyncNowBtn) driveSyncNowBtn.hidden = !driveIsConfigured();
+  if (driveSyncNowBtn) driveSyncNowBtn.hidden = !(activeBackend === "drive" && driveConfigured);
+  
   var urlOffBtn = document.getElementById("menu-sync-disconnect");
   if (urlOffBtn) urlOffBtn.hidden = !syncUrl;
+  
   var ghBtn = document.getElementById("menu-github");
   var ghNowBtn = document.getElementById("menu-github-sync-now");
   var ghOffBtn = document.getElementById("menu-github-disconnect");
+  
   if (ghBtn && typeof GitHubSync !== "undefined") {
     var gh = GitHubSync.state();
-    ghBtn.textContent = "☁️ GitHub sync: " + (gh.needsReconnect ? "Needs reconnect"
-      : (gh.connected ? "Connected (" + gh.storage + "@" + gh.repo + ")" : "Not configured"));
+    if (activeBackend === "github" && gh.connected) {
+      ghBtn.textContent = "\u2601\ufe0f GitHub sync: Connected (" + gh.storage + "@" + gh.repo + ")";
+    } else {
+      ghBtn.textContent = "\u2601\ufe0f GitHub sync: Not configured";
+    }
   }
-  if (ghNowBtn) ghNowBtn.hidden = !(typeof GitHubSync !== "undefined" && GitHubSync.state().connected);
-  if (ghOffBtn) ghOffBtn.hidden = !(typeof GitHubSync !== "undefined" && GitHubSync.state().connected);
+  if (ghNowBtn) ghNowBtn.hidden = !(typeof GitHubSync !== "undefined" && activeBackend === "github" && GitHubSync.state().connected);
+  if (ghOffBtn) ghOffBtn.hidden = !(typeof GitHubSync !== "undefined" && activeBackend === "github" && GitHubSync.state().connected);
 }
 
 function configureSync() {
