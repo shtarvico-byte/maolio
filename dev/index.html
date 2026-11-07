@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#e88504">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<title>Maolio — Chinese Vocabulary</title>
+<title>Maolio — Chinese Vocabulary v6.0</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -346,7 +346,7 @@
 </head>
 <body>
 <div id="update-banner" hidden>
-  <span>A new version is available.</span>
+  <span>A new version is available \u2014 click Reload to update.</span>
   <button onclick="applyUpdate()">Reload</button>
 </div>
 <div id="recovered-banner" hidden>
@@ -354,7 +354,7 @@
   <button onclick="dismissRecovered()">OK</button>
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
-  <h1><span id="app-animal">🐯</span> Maolio</h1>
+  <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.0</span></h1>
   <nav class="tabs">
     <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
     <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
@@ -457,6 +457,7 @@
 <script>
 "use strict";
 
+var APP_VERSION = "6.0";
 var STORAGE_KEY = "zht-vocab-table-v1";
 var SHEETS_KEY = "zht-vocab-sheets-v1";
 var BACKUP_KEY = "zht-vocab-sheets-backup-v1";
@@ -486,6 +487,9 @@ var writeShuffle = false;
 var writeShuffledIndices = [];
 var isDrawing = false;
 var canvasCtx = null;
+
+/* Service worker update */
+var waitingWorker = null;
 
 /* Save a safety copy of the sheets store before it gets overwritten, so
    data can be recovered if a later save loses rows (e.g. an empty sheet
@@ -1785,8 +1789,6 @@ function applyBackupPayload(text) {
   showRecoveredBanner("Restored from file backup (from " + when + ").");
 }
 
-var waitingWorker = null;
-
 function onWaitingWorker(reg) {
   if (!reg.waiting) return;
   waitingWorker = reg.waiting;
@@ -2616,7 +2618,7 @@ watchForUpdates();
           <li>On GitHub, create a <strong>private</strong> repo for sync data (e.g. <code>maolio-sync</code>). This is not the maolio code repo.</li>
           <li>Go to <strong>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</strong>. Give it <strong>Contents: Read and write</strong> access to that one repo only, and an expiration you are comfortable with.</li>
           <li>Paste the token above. It is stored only in this browser's localStorage, is never shown again, and never leaves your device except as the Authorization header to api.github.com.</li>
-          <li>Enter the repo as <code>owner/repo</code>, the branch (default <code>main</code>), and a <strong>storage name</strong> — one per person, e.g. <code>viktor</code> or <code>melinda</code>. Each storage name syncs its own file <code>data/&lt;storage&gt;/sheets.json</code> in the same repo.</li>
+          <li>Enter the repo as <code>owner/repo</code>, the branch (default <code>main</code>), and a <strong>storage name</strong> — one per person, e.g. <code>Vico</code> or <code>Mao</code>. Each storage name syncs its own file <code>data/&lt;storage&gt;/sheets.json</code> in the same repo.</li>
           <li>Pick <strong>GitHub</strong> as the sync backend and press Save &amp; Sync. On first sync you choose whether to upload your local data or download the remote file.</li>
         </ol>
       </div>
