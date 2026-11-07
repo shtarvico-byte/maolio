@@ -363,7 +363,10 @@
           <button id="menu-drive-disconnect" onclick="menuAction(disconnectDrive)" hidden>Disconnect Google Drive</button>
           <button id="menu-sync-disconnect" onclick="menuAction(disconnectUrlSync)" hidden>Disconnect URL Sync</button>
           <button id="menu-drive-restore" onclick="menuAction(restoreFromCloud)" hidden>&#8635; Restore from cloud</button>
-          <button id="menu-drive-sync-now" onclick="menuAction(driveSyncNowManual)" hidden>&#128260; Drive Sync Now</button><hr class="menu-sep"><hr class="menu-sep">
+          <button id="menu-drive-sync-now" onclick="menuAction(driveSyncNowManual)" hidden>&#128260; Drive Sync Now</button>
+          <button id="menu-github" onclick="menuAction(GitHubSync.openDialog)">&#9729;&#65039; GitHub sync: Not configured</button>
+          <button id="menu-github-sync-now" onclick="menuAction(function(){ GitHubSync.syncNow(true); })" hidden>&#128260; GitHub Sync Now</button>
+          <button id="menu-github-disconnect" onclick="menuAction(GitHubSync.disconnect)" hidden>Disconnect GitHub</button><hr class="menu-sep"><hr class="menu-sep">
           <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
       </div>
@@ -411,6 +414,7 @@
   </section><section id="view-conflicts" hidden><div class="toolbar"><h3>Sync Conflicts</h3><button class="btn" onclick="resolveAllConflicts()">Resolve All</button></div><div id="conflicts-list" class="conflicts-list"></div></section>
 </main>
 
+<script src="sync-github.js"></script>
 <script>
 "use strict";
 
@@ -681,6 +685,12 @@ function saveRows() {
   saveSheets();
 }
 
+/* Stamp a row/sheet with updatedAt so the GitHub three-way merge can pick
+   the newer side when the same row is edited on two devices. */
+function touchRow(row) {
+  if (row && typeof row === "object") row.updatedAt = Date.now();
+}
+
 function switchSheet(id) {
   var s = sheetById(id);
   if (!s) return;
@@ -714,7 +724,7 @@ function renameSheet() {
   var name = prompt("Rename sheet:", s.name);
   if (name === null) return;
   name = (name || "").trim() || s.name;
-  if (name !== s.name) { s.name = name; s.renamedAt = Date.now(); }
+  if (name !== s.name) { s.name = name; s.renamedAt = Date.now(); s.updatedAt = Date.now(); }
   saveSheets();
   renderSheetSelect();
 }
@@ -827,6 +837,7 @@ function cellInput(row, field, cls) {
   if (cls) input.className = cls;
   input.addEventListener("input", function () {
     row[field] = input.value;
+    touchRow(row);
     saveRows();
     if (field === "hanzi") {
       var btn = input.closest("tr").querySelector(".row-actions .btn:nth-child(2)");
@@ -844,6 +855,7 @@ function noteTextarea(row) {
   ta.className = "note";
   ta.addEventListener("input", function () {
     row.note = ta.value;
+    touchRow(row);
     saveRows();
     autoGrow(ta);
   });
@@ -861,7 +873,7 @@ function uniqueRowId() {
   return "r-" + Date.now() + "-" + getDeviceId() + "-" + Math.random().toString(36).slice(2, 8);
 }
 function addRow() {
-  rows.push({ id: uniqueRowId(), en: "", pinyin: "", hanzi: "", note: "" });
+  rows.push({ id: uniqueRowId(), en: "", pinyin: "", hanzi: "", note: "", updatedAt: Date.now() });
   saveRows();
   renderTable();
   var body = document.getElementById("table-body");
@@ -916,7 +928,7 @@ function translateRowFromHanzi(i) {
   hanziToEnglish(hz)
     .then(function (r) {
       applyTranslation(i, null, r.pinyin);
-      if (r.en && !row.en) { row.en = r.en; saveRows(); renderTable(); }
+      if (r.en && !row.en) { row.en = r.en; touchRow(row); saveRows(); renderTable(); }
       return buildNote(hz);
     })
     .then(function (note) {
@@ -964,6 +976,7 @@ function applyTranslation(i, hanzi, pinyin, note) {
   if (hanzi && !row.hanzi) row.hanzi = hanzi;
   if (pinyin && !row.pinyin) row.pinyin = pinyin;
   if (note && !row.note) row.note = note;
+  if (hanzi || pinyin || note) touchRow(row);
   saveRows();
   renderTable();
   setRowStatus(row.id, "");
@@ -1686,6 +1699,16 @@ function updateSyncMenu() {
   if (driveSyncNowBtn) driveSyncNowBtn.hidden = !driveIsConfigured();
   var urlOffBtn = document.getElementById("menu-sync-disconnect");
   if (urlOffBtn) urlOffBtn.hidden = !syncUrl;
+  var ghBtn = document.getElementById("menu-github");
+  var ghNowBtn = document.getElementById("menu-github-sync-now");
+  var ghOffBtn = document.getElementById("menu-github-disconnect");
+  if (ghBtn && typeof GitHubSync !== "undefined") {
+    var gh = GitHubSync.state();
+    ghBtn.textContent = "☁️ GitHub sync: " + (gh.needsReconnect ? "Needs reconnect"
+      : (gh.connected ? "Connected (" + gh.storage + "@" + gh.repo + ")" : "Not configured"));
+  }
+  if (ghNowBtn) ghNowBtn.hidden = !(typeof GitHubSync !== "undefined" && GitHubSync.state().connected);
+  if (ghOffBtn) ghOffBtn.hidden = !(typeof GitHubSync !== "undefined" && GitHubSync.state().connected);
 }
 
 function configureSync() {
@@ -1909,7 +1932,9 @@ function scheduleSync() {
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(function() { syncNow(); }, 5000);
   }
-  scheduleDriveSync();
+  /* Only one cloud backend is active at a time (selector in the GitHub sync dialog). */
+  if (typeof GitHubSync !== "undefined" && GitHubSync.isActive()) GitHubSync.schedule();
+  else scheduleDriveSync();
 }
 
 /* ---------- Google Drive Sync ---------- */
@@ -2350,8 +2375,16 @@ cleanupConflictArtifacts();
 loadSyncConfig();
 loadDriveConfig();
 loadDriveMaxSeq();
+if (typeof GitHubSync !== "undefined") {
+  window.GitHubSyncOnStateChange = updateSyncMenu;
+  window.GitHubSyncOnMessage = function (msg) { showSyncBanner(msg); };
+  GitHubSync.init(); /* pulls from GitHub on app start when GitHub is the active backend */
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") GitHubSync.pullNow();
+  });
+}
 updateSyncMenu();
-if (driveIsConfigured()) startDriveAutoSync();
+if (driveIsConfigured() && (typeof GitHubSync === "undefined" || GitHubSync.activeBackend() !== "github")) startDriveAutoSync();
 loadTheme();
 updateModeToggles();
 renderSheetSelect();
@@ -2381,6 +2414,50 @@ watchForUpdates();
       <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:20px;">
         <button class="btn secondary" onclick="closeSyncModal()">Cancel</button>
         <button class="btn" onclick="saveSyncConfig()">Save & Test</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="github-modal" class="modal" hidden>
+  <div class="modal-content">
+    <h3>GitHub Sync</h3>
+    <div id="github-modal-body">
+      <p style="font-size:.9rem;">Sync your vocabulary with a private GitHub repo — one file per person (<code>data/&lt;storage&gt;/sheets.json</code>). Only one cloud backend is active at a time; switching never touches your local data.</p>
+      <p style="margin-top:10px;"><label style="font-size:.85rem;">Sync backend</label>
+        <select id="gh-backend" style="width:100%; padding:10px; margin:4px 0 10px; border:1px solid var(--border); border-radius:6px; font-size:1rem;">
+          <option value="off">Off</option>
+          <option value="drive">Google Drive</option>
+          <option value="github">GitHub</option>
+        </select></p>
+      <p><label style="font-size:.85rem;">Personal access token (fine-grained PAT, Contents: read+write on one repo)</label>
+        <input type="password" id="gh-token" autocomplete="off" style="width:100%; padding:10px; margin:4px 0 10px; border:1px solid var(--border); border-radius:6px; font-size:1rem;"></p>
+      <p><label style="font-size:.85rem;">Repository (owner/repo — the sync-data repo)</label>
+        <input type="text" id="gh-repo" placeholder="myuser/maolio-sync" style="width:100%; padding:10px; margin:4px 0 10px; border:1px solid var(--border); border-radius:6px; font-size:1rem;"></p>
+      <p style="display:flex; gap:10px;">
+        <span style="flex:1;"><label style="font-size:.85rem;">Branch</label>
+        <input type="text" id="gh-branch" placeholder="main" style="width:100%; padding:10px; margin:4px 0 10px; border:1px solid var(--border); border-radius:6px; font-size:1rem;"></span>
+        <span style="flex:1;"><label style="font-size:.85rem;">Storage name (per person)</label>
+        <input type="text" id="gh-storage" placeholder="default" style="width:100%; padding:10px; margin:4px 0 10px; border:1px solid var(--border); border-radius:6px; font-size:1rem;"></span>
+      </p>
+      <p id="gh-status" style="font-size:.85rem; color:var(--muted); margin:6px 0;"></p>
+      <p id="gh-error" style="font-size:.85rem; color:var(--danger); margin:6px 0;"></p>
+      <div id="github-help" hidden style="font-size:.85rem; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px; margin:8px 0;">
+        <strong>How to set up GitHub sync</strong>
+        <ol style="margin:6px 0 0 18px; line-height:1.5;">
+          <li>On GitHub, create a <strong>private</strong> repo for sync data (e.g. <code>maolio-sync</code>). This is not the maolio code repo.</li>
+          <li>Go to <strong>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</strong>. Give it <strong>Contents: Read and write</strong> access to that one repo only, and an expiration you are comfortable with.</li>
+          <li>Paste the token above. It is stored only in this browser's localStorage, is never shown again, and never leaves your device except as the Authorization header to api.github.com.</li>
+          <li>Enter the repo as <code>owner/repo</code>, the branch (default <code>main</code>), and a <strong>storage name</strong> — one per person, e.g. <code>viktor</code> or <code>melinda</code>. Each storage name syncs its own file <code>data/&lt;storage&gt;/sheets.json</code> in the same repo.</li>
+          <li>Pick <strong>GitHub</strong> as the sync backend and press Save &amp; Sync. On first sync you choose whether to upload your local data or download the remote file.</li>
+        </ol>
+      </div>
+      <div style="display:flex; gap:12px; justify-content:space-between; margin-top:16px;">
+        <button class="btn small secondary" onclick="GitHubSync.toggleHelp()">❓ Setup help</button>
+        <span style="display:flex; gap:12px;">
+          <button class="btn secondary" id="gh-sync-now" onclick="GitHubSync.syncNow(true)">Sync now</button>
+          <button class="btn secondary" onclick="GitHubSync.closeDialog()">Cancel</button>
+          <button class="btn" onclick="GitHubSync.saveDialog()">Save &amp; Sync</button>
+        </span>
       </div>
     </div>
   </div>
