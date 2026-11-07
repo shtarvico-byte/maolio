@@ -30,3 +30,6 @@ Chinese learning app. Static PWA with no build step, no framework, no npm depend
 7. **Guardrail files**: NEVER edit files under `.vibe/`, `.github/workflows/check.yml`, or `AGENTS.md`. These are maintained exclusively by humans.
 
 8. **Check integrity**: Never disable a check, silence a warning, or commit secrets. If a check finding appears incorrect, report it and stop work immediately.
+
+### Version Management
+9. **Version increment**: When adding new features or making significant changes, increment `APP_VERSION` in `index.html` (e.g., 6.0 → 6.1) and update the version display. Always commit version bumps separately with message "Bump version to X.X".

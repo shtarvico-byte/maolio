@@ -258,6 +258,24 @@
     transform: translateX(20px);
   }
   .empty-state { color: var(--muted); font-size: 1.2rem; text-align: center; padding: 40px 0; }
+
+  /* Write tab */
+  .write-wrap { display: flex; flex-direction: column; align-items: center; gap: 20px; padding-top: 24px; }
+  .write-prompt { font-size: 2.5rem; text-align: center; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .write-pinyin { font-size: 1.4rem; color: var(--theme-dark); }
+  #write-canvas {
+    background: #fff;
+    border-radius: 16px;
+    border: 3px solid var(--stripe);
+    box-shadow: 0 4px 16px rgba(43,22,8,.25);
+    width: 100%;
+    max-width: 640px;
+    height: 400px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .write-controls { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .write-nav { display: flex; gap: 12px; align-items: center; }
   #update-banner {
     position: fixed;
     bottom: 16px;
@@ -328,7 +346,7 @@
 </head>
 <body>
 <div id="update-banner" hidden>
-  <span>A new version is available.</span>
+  <span>A new version is available \u2014 click Reload to update.</span>
   <button onclick="applyUpdate()">Reload</button>
 </div>
 <div id="recovered-banner" hidden>
@@ -336,10 +354,12 @@
   <button onclick="dismissRecovered()">OK</button>
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
-  <h1><span id="app-animal">🐯</span> Maolio</h1>
+  <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.0</span></h1>
   <nav class="tabs">
     <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
-    <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button><button class="tab-btn" id="tab-conflicts" onclick="switchTab('conflicts')" hidden>Conflicts</button>
+    <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
+    <button class="tab-btn" id="tab-write" onclick="switchTab('write')">Write</button>
+    <button class="tab-btn" id="tab-conflicts" onclick="switchTab('conflicts')" hidden>Conflicts</button>
   </nav>
   <button class="tab-btn new-row-btn" onclick="addRowFromAnywhere()" title="Add a new vocabulary row">+ Row</button>
 </header>
@@ -411,6 +431,25 @@
       <div class="learn-controls" id="learn-controls"></div>
     </div>
     <div class="empty-state" id="learn-empty" hidden>Add some words in the Table tab first.</div>
+  </section>
+  <section id="view-write" hidden>
+    <div class="write-wrap" id="write-wrap">
+      <div class="write-prompt" id="write-prompt">
+        <span id="write-hanzi"></span>
+        <span id="write-pinyin" class="write-pinyin"></span>
+      </div>
+      <canvas id="write-canvas"></canvas>
+      <div class="write-controls" id="write-controls">
+        <button class="btn secondary" onclick="clearCanvas()">Clear</button>
+        <button class="btn" onclick="checkWriting()">Check</button>
+        <div class="write-nav">
+          <button class="btn secondary" onclick="navWrite(-1)">← Prev</button>
+          <span class="card-counter" id="write-counter"></span>
+          <button class="btn secondary" onclick="navWrite(1)">Next →</button>
+        </div>
+      </div>
+    </div>
+    <div class="empty-state" id="write-empty" hidden>Add some words in the Table tab first.</div>
   </section><section id="view-conflicts" hidden><div class="toolbar"><h3>Sync Conflicts</h3><button class="btn" onclick="resolveAllConflicts()">Resolve All</button></div><div id="conflicts-list" class="conflicts-list"></div></section>
 </main>
 
@@ -418,6 +457,15 @@
 <script>
 "use strict";
 
+var APP_VERSION = "6.0";
+var APP_BRANCH = (function() {
+  var path = window.location.pathname;
+  if (path.includes("/dev/") || path.includes("/dev")) {
+    return "dev";
+  }
+  var params = new URLSearchParams(window.location.search);
+  return params.get("branch") || "";
+})();
 var STORAGE_KEY = "zht-vocab-table-v1";
 var SHEETS_KEY = "zht-vocab-sheets-v1";
 var BACKUP_KEY = "zht-vocab-sheets-backup-v1";
@@ -440,6 +488,16 @@ var learnShowHanzi = false;
 var learnShowPinyin = false;
 var learnShuffle = false;
 var shuffledIndices = [];
+
+/* Write mode state */
+var writeIndex = 0;
+var writeShuffle = false;
+var writeShuffledIndices = [];
+var isDrawing = false;
+var canvasCtx = null;
+
+/* Service worker update */
+var waitingWorker = null;
 
 /* Save a safety copy of the sheets store before it gets overwritten, so
    data can be recovered if a later save loses rows (e.g. an empty sheet
@@ -1319,17 +1377,134 @@ function navLearn(delta) {
   renderLearn();
 }
 
+/* ---------- Write mode ---------- */
+
+function writeRows() {
+  return rows.filter(function (r) { return (r.hanzi || "").trim() !== ""; });
+}
+
+function getWriteCardIndex() {
+  if (writeShuffle && writeShuffledIndices.length > 0) {
+    return writeShuffledIndices[writeIndex] || 0;
+  }
+  return writeIndex;
+}
+
+function initCanvas() {
+  var canvas = document.getElementById("write-canvas");
+  if (!canvas) return;
+  
+  canvasCtx = canvas.getContext("2d");
+  
+  var ratio = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * ratio;
+  canvas.height = canvas.offsetHeight * ratio;
+  canvas.getContext("2d").scale(ratio, ratio);
+  
+  clearCanvas();
+  
+  canvas.addEventListener("pointerdown", startDrawing);
+  canvas.addEventListener("pointermove", draw);
+  canvas.addEventListener("pointerup", stopDrawing);
+  canvas.addEventListener("pointerleave", stopDrawing);
+  canvas.addEventListener("touchmove", function(e) { e.preventDefault(); });
+}
+
+function startDrawing(e) {
+  isDrawing = true;
+  draw(e);
+}
+
+function draw(e) {
+  if (!isDrawing || !canvasCtx) return;
+  
+  var canvas = document.getElementById("write-canvas");
+  var rect = canvas.getBoundingClientRect();
+  var ratio = window.devicePixelRatio || 1;
+  var x = (e.clientX - rect.left) * ratio;
+  var y = (e.clientY - rect.top) * ratio;
+  
+  x /= ratio;
+  y /= ratio;
+  
+  canvasCtx.lineJoin = "round";
+  canvasCtx.lineCap = "round";
+  canvasCtx.lineWidth = 6;
+  canvasCtx.strokeStyle = "#2b1608";
+  
+  canvasCtx.lineTo(x, y);
+  canvasCtx.stroke();
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(x, y);
+}
+
+function stopDrawing() {
+  isDrawing = false;
+  canvasCtx.beginPath();
+}
+
+function clearCanvas() {
+  var canvas = document.getElementById("write-canvas");
+  if (!canvas || !canvasCtx) return;
+  
+  var ratio = window.devicePixelRatio || 1;
+  canvasCtx.clearRect(0, 0, canvas.width / ratio, canvas.height / ratio);
+  canvasCtx.beginPath();
+}
+
+function renderWrite() {
+  var list = writeRows();
+  var wrap = document.getElementById("write-wrap");
+  var empty = document.getElementById("write-empty");
+  var hanziEl = document.getElementById("write-hanzi");
+  var pinyinEl = document.getElementById("write-pinyin");
+  var counter = document.getElementById("write-counter");
+
+  if (!list.length) {
+    wrap.hidden = true;
+    empty.hidden = false;
+    return;
+  }
+  wrap.hidden = false;
+  empty.hidden = true;
+
+  if (writeIndex >= list.length) writeIndex = 0;
+  var actualIndex = getWriteCardIndex();
+  var row = list[actualIndex];
+
+  hanziEl.textContent = row.hanzi || "";
+  pinyinEl.textContent = row.pinyin || "";
+  counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length;
+
+  clearCanvas();
+}
+
+function navWrite(delta) {
+  writeIndex += delta;
+  var len = writeRows().length;
+  if (writeIndex < 0) writeIndex = len - 1;
+  if (writeIndex >= len) writeIndex = 0;
+  renderWrite();
+}
+
+function checkWriting() {
+  alert("Check your writing! Compare it to the hanzi above.");
+}
+
 function switchTab(tab) {
   var isTable = tab === "table";
   var isLearn = tab === "learn";
+  var isWrite = tab === "write";
   var isConflicts = tab === "conflicts";
   document.getElementById("view-table").hidden = !isTable;
   document.getElementById("view-learn").hidden = !isLearn;
+  document.getElementById("view-write").hidden = !isWrite;
   document.getElementById("view-conflicts").hidden = !isConflicts;
   document.getElementById("tab-table").classList.toggle("active", isTable);
   document.getElementById("tab-learn").classList.toggle("active", isLearn);
+  document.getElementById("tab-write").classList.toggle("active", isWrite);
   document.getElementById("tab-conflicts").classList.toggle("active", isConflicts);
-  if (!isTable && !isConflicts) {
+  if (!isTable && !isConflicts && !isWrite) {
     learnRevealed = false;
     learnShowEnglish = true;
     learnShowHanzi = false;
@@ -1342,6 +1517,12 @@ function switchTab(tab) {
     }
     updateModeToggles();
     renderLearn();
+  }
+  if (isWrite) {
+    writeIndex = 0;
+    writeShuffledIndices = [];
+    renderWrite();
+    initCanvas();
   }
   if (isConflicts) {
     renderConflicts();
@@ -1371,6 +1552,18 @@ function applyTheme(name) {
 function toggleTheme() {
   applyTheme(currentTheme === "calico" ? "tiger" : "calico");
   try { localStorage.setItem(THEME_KEY, currentTheme); } catch (e) { /* ignore */ }
+}
+
+function updateVersionDisplay() {
+  var versionEl = document.getElementById("app-version");
+  var branch = APP_BRANCH;
+  var versionStr = "v" + APP_VERSION + (branch ? " " + branch : "");
+  
+  if (versionEl) {
+    versionEl.textContent = versionStr;
+  }
+  
+  document.title = "Maolio — Chinese Vocabulary " + versionStr;
 }
 
 function loadTheme() {
@@ -1616,8 +1809,6 @@ function applyBackupPayload(text) {
   showRecoveredBanner("Restored from file backup (from " + when + ").");
 }
 
-var waitingWorker = null;
-
 function onWaitingWorker(reg) {
   if (!reg.waiting) return;
   waitingWorker = reg.waiting;
@@ -1683,32 +1874,49 @@ function loadSyncConfig() {
 }
 
 function updateSyncMenu() {
+  var activeBackend = typeof GitHubSync !== "undefined" ? GitHubSync.activeBackend() : "off";
+  
   var syncBtn = document.getElementById("menu-sync");
   var syncNowBtn = document.getElementById("menu-sync-now");
   if (syncBtn) {
     syncBtn.textContent = "Cloud Sync (URL): " + (syncUrl ? (syncEnabled ? "Enabled" : "Paused") : "Not configured");
   }
   if (syncNowBtn) { syncNowBtn.hidden = !syncUrl; }
+  
   var driveBtn = document.getElementById("menu-drive");
   var driveOffBtn = document.getElementById("menu-drive-disconnect");
-  if (driveBtn) driveBtn.textContent = "\u2601 Google Drive Sync: " + (driveIsConfigured() ? "Enabled" : "Not configured");
-  if (driveOffBtn) driveOffBtn.hidden = !driveIsConfigured();
+  var driveConfigured = driveIsConfigured();
+  
+  if (driveBtn) {
+    if (activeBackend === "drive" && driveConfigured) {
+      driveBtn.textContent = "\u2601 Google Drive Sync: Enabled";
+    } else {
+      driveBtn.textContent = "\u2601 Google Drive Sync: Not configured";
+    }
+  }
+  if (driveOffBtn) driveOffBtn.hidden = !(activeBackend === "drive" && driveConfigured);
   var driveRestoreBtn = document.getElementById("menu-drive-restore");
-  if (driveRestoreBtn) driveRestoreBtn.hidden = !driveIsConfigured();
+  if (driveRestoreBtn) driveRestoreBtn.hidden = !(activeBackend === "drive" && driveConfigured);
   var driveSyncNowBtn = document.getElementById("menu-drive-sync-now");
-  if (driveSyncNowBtn) driveSyncNowBtn.hidden = !driveIsConfigured();
+  if (driveSyncNowBtn) driveSyncNowBtn.hidden = !(activeBackend === "drive" && driveConfigured);
+  
   var urlOffBtn = document.getElementById("menu-sync-disconnect");
   if (urlOffBtn) urlOffBtn.hidden = !syncUrl;
+  
   var ghBtn = document.getElementById("menu-github");
   var ghNowBtn = document.getElementById("menu-github-sync-now");
   var ghOffBtn = document.getElementById("menu-github-disconnect");
+  
   if (ghBtn && typeof GitHubSync !== "undefined") {
     var gh = GitHubSync.state();
-    ghBtn.textContent = "☁️ GitHub sync: " + (gh.needsReconnect ? "Needs reconnect"
-      : (gh.connected ? "Connected (" + gh.storage + "@" + gh.repo + ")" : "Not configured"));
+    if (activeBackend === "github" && gh.connected) {
+      ghBtn.textContent = "\u2601\ufe0f GitHub sync: Connected (" + gh.storage + "@" + gh.repo + ")";
+    } else {
+      ghBtn.textContent = "\u2601\ufe0f GitHub sync: Not configured";
+    }
   }
-  if (ghNowBtn) ghNowBtn.hidden = !(typeof GitHubSync !== "undefined" && GitHubSync.state().connected);
-  if (ghOffBtn) ghOffBtn.hidden = !(typeof GitHubSync !== "undefined" && GitHubSync.state().connected);
+  if (ghNowBtn) ghNowBtn.hidden = !(typeof GitHubSync !== "undefined" && activeBackend === "github" && GitHubSync.state().connected);
+  if (ghOffBtn) ghOffBtn.hidden = !(typeof GitHubSync !== "undefined" && activeBackend === "github" && GitHubSync.state().connected);
 }
 
 function configureSync() {
@@ -2386,6 +2594,7 @@ if (typeof GitHubSync !== "undefined") {
 updateSyncMenu();
 if (driveIsConfigured() && (typeof GitHubSync === "undefined" || GitHubSync.activeBackend() !== "github")) startDriveAutoSync();
 loadTheme();
+updateVersionDisplay();
 updateModeToggles();
 renderSheetSelect();
 renderTable();
@@ -2447,7 +2656,7 @@ watchForUpdates();
           <li>On GitHub, create a <strong>private</strong> repo for sync data (e.g. <code>maolio-sync</code>). This is not the maolio code repo.</li>
           <li>Go to <strong>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</strong>. Give it <strong>Contents: Read and write</strong> access to that one repo only, and an expiration you are comfortable with.</li>
           <li>Paste the token above. It is stored only in this browser's localStorage, is never shown again, and never leaves your device except as the Authorization header to api.github.com.</li>
-          <li>Enter the repo as <code>owner/repo</code>, the branch (default <code>main</code>), and a <strong>storage name</strong> — one per person, e.g. <code>viktor</code> or <code>melinda</code>. Each storage name syncs its own file <code>data/&lt;storage&gt;/sheets.json</code> in the same repo.</li>
+          <li>Enter the repo as <code>owner/repo</code>, the branch (default <code>main</code>), and a <strong>storage name</strong> — one per person, e.g. <code>Vico</code> or <code>Mao</code>. Each storage name syncs its own file <code>data/&lt;storage&gt;/sheets.json</code> in the same repo.</li>
           <li>Pick <strong>GitHub</strong> as the sync backend and press Save &amp; Sync. On first sync you choose whether to upload your local data or download the remote file.</li>
         </ol>
       </div>
