@@ -31,6 +31,13 @@ var GitHubSync = (function () {
   var applying = false; /* true while a remote merge is being applied locally */
   var dirtyAt = 0;
   var debounceTimer = null;
+  /* Per-sync log of what the GitHub lookups actually returned, appended to
+     sync error messages so a failure states its own diagnosis. */
+  var lookupLog = [];
+  function record(entry) {
+    lookupLog.push(entry);
+    if (lookupLog.length > 12) lookupLog.shift();
+  }
 
   /* ---------- test seams: storage / fetch / confirm can be overridden ---------- */
   function store() {
@@ -140,9 +147,24 @@ var GitHubSync = (function () {
     e.status = status;
     return e;
   }
-  function filePath() {
+  /* GitHub explains rejected writes in the response body; surface that
+     message so sync errors state the actual reason, not a bare status code. */
+  function throwGhError(res) {
+    return res.text().then(function (txt) {
+      var msg = "GitHub HTTP " + res.status;
+      try {
+        var parsed = JSON.parse(txt);
+        if (parsed && parsed.message) msg = "GitHub HTTP " + res.status + ": " + parsed.message;
+      } catch (e) { /* non-JSON body; keep the bare status text */ }
+      throw GhError(res.status, msg);
+    });
+  }
+  /* `?ref=` selects the branch on GET requests. The PUT takes the branch in
+     its JSON body; a `?ref=` query on the PUT is not part of the Contents API
+     and can make GitHub reject the write with HTTP 422, so only GETs carry it. */
+  function filePath(withRef) {
     return "/repos/" + config.repo + "/contents/data/" + encodeURIComponent(config.storage) +
-      "/sheets.json?ref=" + encodeURIComponent(config.branch);
+      "/sheets.json" + (withRef ? "?ref=" + encodeURIComponent(config.branch) : "");
   }
   function ghFetch(path, options) {
     options = options || {};
@@ -166,11 +188,76 @@ var GitHubSync = (function () {
     }
     return fetchImpl()(API_BASE + path, init);
   }
-  /* Pull the raw file; 404 means "does not exist yet" and resolves to null. */
+  /* GET the file, first on the configured branch (?ref=), and if that lookup
+     misses with a 404, once more without the query (GitHub then serves the
+     repo's default branch). Rationale: if the ?ref= GET fails while the file
+     is actually present, ghGetSha would return null and the PUT would be sent
+     as a create, which GitHub rejects with 422 ("sha" wasn't supplied).
+     404 on both lookups genuinely means "file does not exist yet". */
+  function ghGetWithFallback(accept, label) {
+    function attempt(path, via) {
+      return ghFetch(path, { accept: accept }).then(function (res) {
+        record(label + ":" + via + "=" + res.status);
+        if (res.status === 404 && path.indexOf("?ref=") !== -1) {
+          console.warn("[maolio-sync] contents GET with ?ref=" + config.branch +
+            " returned 404; retrying without the ref query (repo default branch)");
+          return attempt(filePath(false), "noref");
+        }
+        return res;
+      });
+    }
+    return attempt(filePath(true), "ref");
+  }
+  function b64decode(b64) {
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  /* Last-resort lookup via the Git Trees API, a different API surface from
+     Contents. Returns the blob entry for the file, or null when the file is
+     absent / the tree is truncated. */
+  function ghTreeEntry() {
+    var path = "data/" + config.storage + "/sheets.json";
+    return ghFetch("/repos/" + config.repo + "/git/trees/" + encodeURIComponent(config.branch) + "?recursive=1")
+      .then(function (res) {
+        record("trees=" + res.status);
+        if (!res.ok) return null;
+        return res.json().then(function (t) {
+          if (!t || !Array.isArray(t.tree) || t.truncated) {
+            if (t && t.truncated) record("trees=truncated");
+            return null;
+          }
+          var hit = null;
+          t.tree.forEach(function (e) { if (e && e.path === path && e.type === "blob") hit = e; });
+          return hit;
+        });
+      });
+  }
+  function ghShaViaTrees() {
+    return ghTreeEntry().then(function (e) {
+      if (e) record("sha=ok(trees)");
+      return e ? e.sha : null;
+    });
+  }
+  function ghPullViaTrees() {
+    return ghTreeEntry().then(function (entry) {
+      if (!entry) return null;
+      return ghFetch("/repos/" + config.repo + "/git/blobs/" + encodeURIComponent(entry.sha)).then(function (res) {
+        record("blob=" + res.status);
+        if (!res.ok) return null;
+        return res.json().then(function (b) {
+          if (!b || b.encoding !== "base64" || typeof b.content !== "string") return null;
+          try { return JSON.parse(b64decode(b.content)); } catch (e2) { return null; }
+        });
+      });
+    });
+  }
+  /* Pull the raw file; null means "does not exist yet". */
   function ghPull() {
-    return ghFetch(filePath(), { accept: "application/vnd.github.raw+json" }).then(function (res) {
-      if (res.status === 404) return null;
-      if (!res.ok) throw GhError(res.status);
+    return ghGetWithFallback("application/vnd.github.raw+json", "pull").then(function (res) {
+      if (res.status === 404) return ghPullViaTrees();
+      if (!res.ok) return throwGhError(res);
       return res.text().then(function (text) {
         try { return JSON.parse(text); } catch (e) { throw GhError(res.status, "Remote file is not valid JSON"); }
       });
@@ -178,10 +265,16 @@ var GitHubSync = (function () {
   }
   /* Blob SHA needed for updates; null when the file does not exist yet. */
   function ghGetSha() {
-    return ghFetch(filePath()).then(function (res) {
-      if (res.status === 404) return null;
-      if (!res.ok) throw GhError(res.status);
-      return res.json().then(function (meta) { return meta && meta.sha ? meta.sha : null; });
+    return ghGetWithFallback(undefined, "sha").then(function (res) {
+      if (res.status === 404) return ghShaViaTrees();
+      if (!res.ok) return throwGhError(res);
+      return res.json().then(function (meta) {
+        if (meta && meta.sha) { record("sha=ok(contents)"); return meta.sha; }
+        /* 200 without a blob sha is unexpected (e.g. a directory listing);
+           try the trees API before concluding the file is absent. */
+        console.warn("[maolio-sync] contents GET returned 200 but no blob sha; falling back to the trees API");
+        return ghShaViaTrees();
+      });
     });
   }
   function b64encode(str) {
@@ -198,8 +291,9 @@ var GitHubSync = (function () {
       branch: config.branch
     };
     if (sha) body.sha = sha;
-    return ghFetch(filePath(), { method: "PUT", body: JSON.stringify(body) }).then(function (res) {
-      if (!res.ok) throw GhError(res.status);
+    return ghFetch(filePath(false), { method: "PUT", body: JSON.stringify(body) }).then(function (res) {
+      record("put=" + res.status);
+      if (!res.ok) return throwGhError(res);
       return res.json().catch(function () { return null; });
     });
   }
@@ -331,6 +425,7 @@ var GitHubSync = (function () {
     if (!isActive()) return Promise.resolve(false);
     if (inFlight) return Promise.resolve(false);
     inFlight = true;
+    lookupLog = [];
     return ghPull().then(function (remote) {
       var local = getLocal();
       var snap = loadSnapshot();
@@ -389,7 +484,10 @@ var GitHubSync = (function () {
       } else if (e && e.message === "cancelled") {
         if (manual) emitMessage("GitHub sync cancelled.", false);
       } else {
-        if (manual) emitMessage("GitHub sync error: " + ((e && e.message) || e), true);
+        var detail = (e && e.message) || String(e);
+        if (lookupLog.length) detail += " [" + lookupLog.join(" ") + "]";
+        console.warn("[maolio-sync] sync failed:", (e && e.message) || e, lookupLog);
+        if (manual) emitMessage("GitHub sync error: " + detail, true);
       }
       return false;
     }).then(function (ok) {
