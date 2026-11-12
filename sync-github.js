@@ -140,9 +140,24 @@ var GitHubSync = (function () {
     e.status = status;
     return e;
   }
-  function filePath() {
+  /* GitHub explains rejected writes in the response body; surface that
+     message so sync errors state the actual reason, not a bare status code. */
+  function throwGhError(res) {
+    return res.text().then(function (txt) {
+      var msg = "GitHub HTTP " + res.status;
+      try {
+        var parsed = JSON.parse(txt);
+        if (parsed && parsed.message) msg = "GitHub HTTP " + res.status + ": " + parsed.message;
+      } catch (e) { /* non-JSON body; keep the bare status text */ }
+      throw GhError(res.status, msg);
+    });
+  }
+  /* `?ref=` selects the branch on GET requests. The PUT takes the branch in
+     its JSON body; a `?ref=` query on the PUT is not part of the Contents API
+     and can make GitHub reject the write with HTTP 422, so only GETs carry it. */
+  function filePath(withRef) {
     return "/repos/" + config.repo + "/contents/data/" + encodeURIComponent(config.storage) +
-      "/sheets.json?ref=" + encodeURIComponent(config.branch);
+      "/sheets.json" + (withRef ? "?ref=" + encodeURIComponent(config.branch) : "");
   }
   function ghFetch(path, options) {
     options = options || {};
@@ -168,9 +183,9 @@ var GitHubSync = (function () {
   }
   /* Pull the raw file; 404 means "does not exist yet" and resolves to null. */
   function ghPull() {
-    return ghFetch(filePath(), { accept: "application/vnd.github.raw+json" }).then(function (res) {
+    return ghFetch(filePath(true), { accept: "application/vnd.github.raw+json" }).then(function (res) {
       if (res.status === 404) return null;
-      if (!res.ok) throw GhError(res.status);
+      if (!res.ok) return throwGhError(res);
       return res.text().then(function (text) {
         try { return JSON.parse(text); } catch (e) { throw GhError(res.status, "Remote file is not valid JSON"); }
       });
@@ -178,9 +193,9 @@ var GitHubSync = (function () {
   }
   /* Blob SHA needed for updates; null when the file does not exist yet. */
   function ghGetSha() {
-    return ghFetch(filePath()).then(function (res) {
+    return ghFetch(filePath(true)).then(function (res) {
       if (res.status === 404) return null;
-      if (!res.ok) throw GhError(res.status);
+      if (!res.ok) return throwGhError(res);
       return res.json().then(function (meta) { return meta && meta.sha ? meta.sha : null; });
     });
   }
@@ -198,8 +213,8 @@ var GitHubSync = (function () {
       branch: config.branch
     };
     if (sha) body.sha = sha;
-    return ghFetch(filePath(), { method: "PUT", body: JSON.stringify(body) }).then(function (res) {
-      if (!res.ok) throw GhError(res.status);
+    return ghFetch(filePath(false), { method: "PUT", body: JSON.stringify(body) }).then(function (res) {
+      if (!res.ok) return throwGhError(res);
       return res.json().catch(function () { return null; });
     });
   }
