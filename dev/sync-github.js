@@ -181,9 +181,28 @@ var GitHubSync = (function () {
     }
     return fetchImpl()(API_BASE + path, init);
   }
-  /* Pull the raw file; 404 means "does not exist yet" and resolves to null. */
+  /* GET the file, first on the configured branch (?ref=), and if that lookup
+     misses with a 404, once more without the query (GitHub then serves the
+     repo's default branch). Rationale: if the ?ref= GET fails while the file
+     is actually present, ghGetSha would return null and the PUT would be sent
+     as a create, which GitHub rejects with 422 ("sha" wasn't supplied).
+     404 on both lookups genuinely means "file does not exist yet". */
+  function ghGetWithFallback(accept) {
+    function attempt(path) {
+      return ghFetch(path, { accept: accept }).then(function (res) {
+        if (res.status === 404 && path.indexOf("?ref=") !== -1) {
+          console.warn("[maolio-sync] contents GET with ?ref=" + config.branch +
+            " returned 404; retrying without the ref query (repo default branch)");
+          return attempt(filePath(false));
+        }
+        return res;
+      });
+    }
+    return attempt(filePath(true));
+  }
+  /* Pull the raw file; null means "does not exist yet". */
   function ghPull() {
-    return ghFetch(filePath(true), { accept: "application/vnd.github.raw+json" }).then(function (res) {
+    return ghGetWithFallback("application/vnd.github.raw+json").then(function (res) {
       if (res.status === 404) return null;
       if (!res.ok) return throwGhError(res);
       return res.text().then(function (text) {
@@ -193,7 +212,7 @@ var GitHubSync = (function () {
   }
   /* Blob SHA needed for updates; null when the file does not exist yet. */
   function ghGetSha() {
-    return ghFetch(filePath(true)).then(function (res) {
+    return ghGetWithFallback().then(function (res) {
       if (res.status === 404) return null;
       if (!res.ok) return throwGhError(res);
       return res.json().then(function (meta) { return meta && meta.sha ? meta.sha : null; });
