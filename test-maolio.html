@@ -141,8 +141,10 @@
   function testCreateOn404() {
     reset([{ id: "s1", name: "S1", rows: mkRows(3) }]);
     window.__fetchQueue = [
-      window.__res(404, "not found"),          // GET raw -> file does not exist yet
-      window.__res(404, "not found"),          // GET sha -> null -> create without sha
+      window.__res(404, "not found"),          // GET raw ?ref= -> miss...
+      window.__res(404, "not found"),          // ...retry without ?ref= -> file does not exist yet
+      window.__res(404, "not found"),          // GET sha ?ref= -> miss...
+      window.__res(404, "not found"),          // ...retry without ?ref= -> null -> create without sha
       window.__res(201, { content: { sha: "new-sha" } }) // PUT create
     ];
     return GitHubSync.syncNow(true).then(function (ok) {
@@ -156,12 +158,15 @@
       assert(p[0].url.indexOf("/repos/me/sync-repo/contents/data/tester/sheets.json") !== -1, "wrong file path: " + p[0].url);
       assert(p[0].url.indexOf("?ref=") === -1, "PUT must not carry a ?ref= query (undocumented; GitHub rejects it with 422): " + p[0].url);
       var gets = window.__fetchLog.filter(function (c) { return c.method === "GET"; });
-      assert(gets.length >= 2 && gets.every(function (g) { return g.url.indexOf("?ref=main") !== -1; }),
-        "GETs must keep the ?ref= branch selector");
+      assert(gets.length === 4, "expected 4 GETs (2 lookups x ?ref= + fallback), got " + gets.length);
+      assert(gets[0].url.indexOf("?ref=main") !== -1 && gets[1].url.indexOf("?ref=") === -1,
+        "GET #1 carries ?ref=main, its 404-fallback retry (GET #2) must drop the query");
+      assert(gets[2].url.indexOf("?ref=main") !== -1 && gets[3].url.indexOf("?ref=") === -1,
+        "GET #3 carries ?ref=main, its 404-fallback retry (GET #4) must drop the query");
       var pushed = decodePut(p[0]);
       assert(pushed.sheets.length === 1 && pushed.sheets[0].rows.length === 3, "PUT content must be the local sheets store");
       assert(GitHubSync.state().lastSyncAt > 0, "lastSyncAt should be set");
-      report("GET 404 -> PUT create (no sha, no ?ref on PUT), correct path/branch/auth, snapshot saved", true);
+      report("GET 404 on ?ref= and fallback -> PUT create (no sha, no ?ref on PUT), correct path/branch/auth, snapshot saved", true);
     });
   }
   function testUpdateWithSha() {
@@ -211,11 +216,15 @@
     // that text in the sync error instead of a bare "GitHub HTTP 422".
     reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
     window.__fetchQueue = [
-      window.__res(404, "nf"),   // GET raw -> no remote yet
-      window.__res(404, "nf"),   // GET sha -> null -> create without sha
+      window.__res(404, "nf"),   // GET raw ?ref= -> miss
+      window.__res(404, "nf"),   // GET raw fallback -> no remote yet
+      window.__res(404, "nf"),   // GET sha ?ref= -> miss
+      window.__res(404, "nf"),   // GET sha fallback -> null -> create without sha
       window.__res(422, { message: "The `sha` parameter doesn't match the current file content" }), // PUT fails
-      window.__res(404, "nf"),   // GET raw (retry)
-      window.__res(404, "nf"),   // GET sha (retry)
+      window.__res(404, "nf"),   // GET raw ?ref= (retry)
+      window.__res(404, "nf"),   // GET raw fallback (retry)
+      window.__res(404, "nf"),   // GET sha ?ref= (retry)
+      window.__res(404, "nf"),   // GET sha fallback (retry)
       window.__res(422, { message: "The `sha` parameter doesn't match the current file content" }) // PUT fails again
     ];
     return GitHubSync.syncNow(true).then(function (ok) {
@@ -223,6 +232,38 @@
       assert(window.__messages.some(function (m) { return m.isError && m.msg.indexOf("doesn't match the current file content") !== -1; }),
         "the sync error must surface GitHub's own explanation, got: " + JSON.stringify(window.__messages));
       report("422 PUT -> error banner carries GitHub's message from the response body", true);
+    });
+  }
+  function testRef404Fallback() {
+    // Regression: the contents GET with ?ref=<branch> 404s even though the file
+    // exists on the repo's default branch. Without the no-ref retry, ghGetSha
+    // returned null and the PUT was sent as a create, which GitHub rejects
+    // with 422: Invalid request. "sha" wasn't supplied.
+    reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
+    var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(2).concat([{ id: "r7", en: "remote", updatedAt: 50 }]) }], currentSheetId: "s1" };
+    window.__confirmQueue = [true, true]; // first-sync: choose upload, confirm replace
+    window.__fetchQueue = [
+      window.__res(404, "nf"),                  // GET raw ?ref=main -> 404
+      window.__res(200, remote),                // GET raw fallback (no ?ref=) -> file exists
+      window.__res(404, "nf"),                  // GET sha ?ref=main -> 404
+      window.__res(200, { sha: "blob-abc" }),   // GET sha fallback -> real blob sha
+      window.__res(200, { content: { sha: "new" } }) // PUT update with sha
+    ];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === true, "syncNow should succeed");
+      var p = puts();
+      assert(p.length === 1, "expected exactly one PUT, got " + p.length);
+      var body = JSON.parse(p[0].opts.body);
+      assert(body.sha === "blob-abc", "PUT must update with the sha from the fallback GET, got: " + body.sha);
+      assert(body.branch === "main", "PUT must target the configured branch");
+      var gets = window.__fetchLog.filter(function (c) { return c.method === "GET"; });
+      assert(gets.length === 4, "expected 4 GETs (?ref + fallback, pull and sha), got " + gets.length);
+      assert(gets[0].url.indexOf("?ref=main") !== -1 && gets[1].url.indexOf("?ref=") === -1 &&
+             gets[2].url.indexOf("?ref=main") !== -1 && gets[3].url.indexOf("?ref=") === -1,
+        "each ?ref= GET 404 must be retried once without the ref query, got: " + gets.map(function (g) { return g.url; }).join(" | "));
+      assert(GitHubSync.state().needsReconnect !== true, "successful sync must not set needs-reconnect");
+      assert(GitHubSync.state().lastSyncAt > 0, "lastSyncAt should be set");
+      report("contents GET ?ref= 404 with existing file -> no-ref fallback finds sha -> PUT update succeeds (no bogus create/422)", true);
     });
   }
   function testAuthFailure() {
@@ -239,7 +280,9 @@
   function testDeleteGuard() {
     reset([{ id: "s1", name: "S1", rows: mkRows(10) }]); // 10 rows
     window.__fetchQueue = [
-      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(201, {}) // initial upload -> snapshot
+      window.__res(404, "nf"), window.__res(404, "nf"),   // GET raw ?ref= + fallback
+      window.__res(404, "nf"), window.__res(404, "nf"),   // GET sha ?ref= + fallback
+      window.__res(201, {}) // initial upload -> snapshot
     ];
     return GitHubSync.syncNow(true).then(function () {
       // remote now has only 4 of the 10 rows -> merge would delete 60%
@@ -272,6 +315,7 @@
       ["update-with-sha", testUpdateWithSha],
       ["conflict-retry", testConflictRetry],
       ["put-422-message", testPut422Message],
+      ["ref-404-fallback", testRef404Fallback],
       ["auth-401", testAuthFailure],
       ["delete-guard", testDeleteGuard]
     ].forEach(function (t) {
