@@ -54,6 +54,10 @@
       text: function () { return Promise.resolve(typeof body === "string" ? body : JSON.stringify(body)); }
     };
   };
+  window.__messages = [];
+  window.GitHubSyncOnMessage = function (msg, isError) {
+    window.__messages.push({ msg: msg, isError: !!isError });
+  };
   window.__backups = 0;
   window.backupSheets = function () { window.__backups++; };
   window.saveSheets = function () {};
@@ -78,6 +82,7 @@
     window.__fetchQueue = [];
     window.__confirmQueue = [];
     window.__confirmLog = [];
+    window.__messages = [];
     window.__backups = 0;
     window.sheets = localSheets;
     window.currentSheetId = localSheets.length ? localSheets[0].id : null;
@@ -148,11 +153,15 @@
       assert(!("sha" in body), "create PUT must not send a sha");
       assert(body.branch === "main", "PUT must target the configured branch");
       assert(p[0].opts.headers.Authorization === "Bearer test-pat", "PUT must send the Bearer token");
-      assert(p[0].url.indexOf("/repos/me/sync-repo/contents/data/tester/sheets.json?ref=main") !== -1, "wrong file path: " + p[0].url);
+      assert(p[0].url.indexOf("/repos/me/sync-repo/contents/data/tester/sheets.json") !== -1, "wrong file path: " + p[0].url);
+      assert(p[0].url.indexOf("?ref=") === -1, "PUT must not carry a ?ref= query (undocumented; GitHub rejects it with 422): " + p[0].url);
+      var gets = window.__fetchLog.filter(function (c) { return c.method === "GET"; });
+      assert(gets.length >= 2 && gets.every(function (g) { return g.url.indexOf("?ref=main") !== -1; }),
+        "GETs must keep the ?ref= branch selector");
       var pushed = decodePut(p[0]);
       assert(pushed.sheets.length === 1 && pushed.sheets[0].rows.length === 3, "PUT content must be the local sheets store");
       assert(GitHubSync.state().lastSyncAt > 0, "lastSyncAt should be set");
-      report("GET 404 -> PUT create (no sha), correct path/branch/auth, snapshot saved", true);
+      report("GET 404 -> PUT create (no sha, no ?ref on PUT), correct path/branch/auth, snapshot saved", true);
     });
   }
   function testUpdateWithSha() {
@@ -195,6 +204,25 @@
       assert(p.length === putsBefore + 2, "expected 2 new PUTs (conflict + retry), got " + (p.length - putsBefore));
       assert(JSON.parse(p[p.length - 1].opts.body).sha === "s2", "retry PUT must use the re-fetched sha");
       report("409 conflict -> re-pull, merge, retry once", true);
+    });
+  }
+  function testPut422Message() {
+    // A rejected write whose body carries GitHub's explanation must surface
+    // that text in the sync error instead of a bare "GitHub HTTP 422".
+    reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
+    window.__fetchQueue = [
+      window.__res(404, "nf"),   // GET raw -> no remote yet
+      window.__res(404, "nf"),   // GET sha -> null -> create without sha
+      window.__res(422, { message: "The `sha` parameter doesn't match the current file content" }), // PUT fails
+      window.__res(404, "nf"),   // GET raw (retry)
+      window.__res(404, "nf"),   // GET sha (retry)
+      window.__res(422, { message: "The `sha` parameter doesn't match the current file content" }) // PUT fails again
+    ];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === false, "syncNow should fail after a persistent 422");
+      assert(window.__messages.some(function (m) { return m.isError && m.msg.indexOf("doesn't match the current file content") !== -1; }),
+        "the sync error must surface GitHub's own explanation, got: " + JSON.stringify(window.__messages));
+      report("422 PUT -> error banner carries GitHub's message from the response body", true);
     });
   }
   function testAuthFailure() {
@@ -243,6 +271,7 @@
       ["create-on-404", testCreateOn404],
       ["update-with-sha", testUpdateWithSha],
       ["conflict-retry", testConflictRetry],
+      ["put-422-message", testPut422Message],
       ["auth-401", testAuthFailure],
       ["delete-guard", testDeleteGuard]
     ].forEach(function (t) {
