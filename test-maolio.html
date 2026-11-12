@@ -142,9 +142,11 @@
     reset([{ id: "s1", name: "S1", rows: mkRows(3) }]);
     window.__fetchQueue = [
       window.__res(404, "not found"),          // GET raw ?ref= -> miss...
-      window.__res(404, "not found"),          // ...retry without ?ref= -> file does not exist yet
+      window.__res(404, "not found"),          // ...retry without ?ref= -> miss...
+      window.__res(404, "not found"),          // ...trees API -> file does not exist yet
       window.__res(404, "not found"),          // GET sha ?ref= -> miss...
-      window.__res(404, "not found"),          // ...retry without ?ref= -> null -> create without sha
+      window.__res(404, "not found"),          // ...retry without ?ref= -> miss...
+      window.__res(404, "not found"),          // ...trees API -> null -> create without sha
       window.__res(201, { content: { sha: "new-sha" } }) // PUT create
     ];
     return GitHubSync.syncNow(true).then(function (ok) {
@@ -158,11 +160,13 @@
       assert(p[0].url.indexOf("/repos/me/sync-repo/contents/data/tester/sheets.json") !== -1, "wrong file path: " + p[0].url);
       assert(p[0].url.indexOf("?ref=") === -1, "PUT must not carry a ?ref= query (undocumented; GitHub rejects it with 422): " + p[0].url);
       var gets = window.__fetchLog.filter(function (c) { return c.method === "GET"; });
-      assert(gets.length === 4, "expected 4 GETs (2 lookups x ?ref= + fallback), got " + gets.length);
-      assert(gets[0].url.indexOf("?ref=main") !== -1 && gets[1].url.indexOf("?ref=") === -1,
-        "GET #1 carries ?ref=main, its 404-fallback retry (GET #2) must drop the query");
-      assert(gets[2].url.indexOf("?ref=main") !== -1 && gets[3].url.indexOf("?ref=") === -1,
-        "GET #3 carries ?ref=main, its 404-fallback retry (GET #4) must drop the query");
+      assert(gets.length === 6, "expected 6 GETs (pull + sha, each ref/noref/trees), got " + gets.length);
+      assert(gets[0].url.indexOf("?ref=main") !== -1 && gets[1].url.indexOf("?ref=") === -1 &&
+             gets[2].url.indexOf("/git/trees/main") !== -1,
+        "pull: ?ref= GET, then no-ref retry, then trees API: " + gets.slice(0, 3).map(function (g) { return g.url; }).join(" | "));
+      assert(gets[3].url.indexOf("?ref=main") !== -1 && gets[4].url.indexOf("?ref=") === -1 &&
+             gets[5].url.indexOf("/git/trees/main") !== -1,
+        "sha: ?ref= GET, then no-ref retry, then trees API");
       var pushed = decodePut(p[0]);
       assert(pushed.sheets.length === 1 && pushed.sheets[0].rows.length === 3, "PUT content must be the local sheets store");
       assert(GitHubSync.state().lastSyncAt > 0, "lastSyncAt should be set");
@@ -217,20 +221,26 @@
     reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
     window.__fetchQueue = [
       window.__res(404, "nf"),   // GET raw ?ref= -> miss
-      window.__res(404, "nf"),   // GET raw fallback -> no remote yet
+      window.__res(404, "nf"),   // GET raw fallback -> miss
+      window.__res(404, "nf"),   // GET trees -> no remote yet
       window.__res(404, "nf"),   // GET sha ?ref= -> miss
-      window.__res(404, "nf"),   // GET sha fallback -> null -> create without sha
+      window.__res(404, "nf"),   // GET sha fallback -> miss
+      window.__res(404, "nf"),   // GET sha trees -> null -> create without sha
       window.__res(422, { message: "The `sha` parameter doesn't match the current file content" }), // PUT fails
       window.__res(404, "nf"),   // GET raw ?ref= (retry)
       window.__res(404, "nf"),   // GET raw fallback (retry)
+      window.__res(404, "nf"),   // GET trees (retry)
       window.__res(404, "nf"),   // GET sha ?ref= (retry)
       window.__res(404, "nf"),   // GET sha fallback (retry)
+      window.__res(404, "nf"),   // GET sha trees (retry)
       window.__res(422, { message: "The `sha` parameter doesn't match the current file content" }) // PUT fails again
     ];
     return GitHubSync.syncNow(true).then(function (ok) {
       assert(ok === false, "syncNow should fail after a persistent 422");
       assert(window.__messages.some(function (m) { return m.isError && m.msg.indexOf("doesn't match the current file content") !== -1; }),
         "the sync error must surface GitHub's own explanation, got: " + JSON.stringify(window.__messages));
+      assert(window.__messages.some(function (m) { return m.isError && m.msg.indexOf("put=422") !== -1; }),
+        "the sync error must include the lookup log for diagnosis, got: " + JSON.stringify(window.__messages));
       report("422 PUT -> error banner carries GitHub's message from the response body", true);
     });
   }
@@ -266,6 +276,40 @@
       report("contents GET ?ref= 404 with existing file -> no-ref fallback finds sha -> PUT update succeeds (no bogus create/422)", true);
     });
   }
+  function testTreesFallback() {
+    // Contents API entirely unavailable (all lookups 404) while the Git Trees
+    // API sees the file. The pull must get the true remote content via the
+    // blob API and the PUT must update with the trees blob sha; without this
+    // the PUT would be a bogus create and fail with 422 ("sha" wasn't supplied).
+    reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
+    var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(2).concat([{ id: "r8", en: "remote", updatedAt: 60 }]) }], currentSheetId: "s1" };
+    var tree = { tree: [{ path: "data/tester/sheets.json", type: "blob", sha: "tree-blob-sha" }] };
+    var blob = { encoding: "base64", content: btoa(JSON.stringify(remote)) };
+    window.__confirmQueue = [true, true]; // first-sync: choose upload, confirm replace
+    window.__fetchQueue = [
+      window.__res(404, "nf"),  // pull: contents ?ref= -> 404
+      window.__res(404, "nf"),  // pull: contents no-ref -> 404
+      window.__res(200, tree),  // pull: trees -> blob entry
+      window.__res(200, blob),  // pull: git blob -> real remote content
+      window.__res(404, "nf"),  // sha: contents ?ref= -> 404
+      window.__res(404, "nf"),  // sha: contents no-ref -> 404
+      window.__res(200, tree),  // sha: trees -> blob sha
+      window.__res(200, { content: { sha: "new" } }) // PUT update with trees sha
+    ];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === true, "syncNow should succeed");
+      var p = puts();
+      assert(p.length === 1, "expected exactly one PUT, got " + p.length);
+      var body = JSON.parse(p[0].opts.body);
+      assert(body.sha === "tree-blob-sha", "PUT must update with the sha from the trees API, got: " + body.sha);
+      var gets = window.__fetchLog.filter(function (c) { return c.method === "GET"; });
+      assert(gets.length === 7, "expected 7 GETs (pull: ref/noref/trees/blob, sha: ref/noref/trees), got " + gets.length);
+      assert(gets[2].url.indexOf("/git/trees/main") !== -1 && gets[3].url.indexOf("/git/blobs/tree-blob-sha") !== -1,
+        "pull fallback must walk the trees API and fetch the blob");
+      assert(GitHubSync.state().lastSyncAt > 0, "lastSyncAt should be set");
+      report("contents API dead but trees API alive -> pull via trees+blob, PUT update with trees sha (no bogus create/422)", true);
+    });
+  }
   function testAuthFailure() {
     reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
     window.__fetchQueue = [window.__res(401, { message: "Bad credentials" })];
@@ -280,8 +324,8 @@
   function testDeleteGuard() {
     reset([{ id: "s1", name: "S1", rows: mkRows(10) }]); // 10 rows
     window.__fetchQueue = [
-      window.__res(404, "nf"), window.__res(404, "nf"),   // GET raw ?ref= + fallback
-      window.__res(404, "nf"), window.__res(404, "nf"),   // GET sha ?ref= + fallback
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),   // GET raw ?ref= + fallback + trees
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),   // GET sha ?ref= + fallback + trees
       window.__res(201, {}) // initial upload -> snapshot
     ];
     return GitHubSync.syncNow(true).then(function () {
@@ -316,6 +360,7 @@
       ["conflict-retry", testConflictRetry],
       ["put-422-message", testPut422Message],
       ["ref-404-fallback", testRef404Fallback],
+      ["trees-fallback", testTreesFallback],
       ["auth-401", testAuthFailure],
       ["delete-guard", testDeleteGuard]
     ].forEach(function (t) {
