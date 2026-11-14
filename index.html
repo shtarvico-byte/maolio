@@ -505,7 +505,7 @@
 <script>
 "use strict";
 
-var APP_VERSION = "6.4";
+var APP_VERSION = "6.5";
 var APP_BRANCH = (function() {
   var path = window.location.pathname;
   if (path.includes("/dev/") || path.includes("/dev")) {
@@ -842,9 +842,7 @@ function deleteSheet() {
     alert("You must keep at least one sheet.");
     return;
   }
-  var msg = "Delete sheet "" + s.name + ""?
-
-This will delete " + s.rows.length + " rows. This cannot be undone.";
+  var msg = "Delete sheet \"" + s.name + "\"?\n\nThis will delete " + s.rows.length + " rows. This cannot be undone.";
   if (!confirm(msg)) return;
   sheets = sheets.filter(function (sh) { return sh.id !== s.id; });
   if (currentSheetId === s.id) {
