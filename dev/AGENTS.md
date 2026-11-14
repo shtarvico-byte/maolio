@@ -32,4 +32,8 @@ Chinese learning app. Static PWA with no build step, no framework, no npm depend
 8. **Check integrity**: Never disable a check, silence a warning, or commit secrets. If a check finding appears incorrect, report it and stop work immediately.
 
 ### Version Management
-9. **Version increment**: When adding new features or making significant changes, increment `APP_VERSION` in `index.html` (e.g., 6.0 → 6.1) and update the version display. Always commit version bumps separately with message "Bump version to X.X".
+9. **Version increment**: When adding new features or making changes, increment `APP_VERSION` in `index.html` (e.g., 6.0 → 6.1) and update the version display. Always commit version bumps separately with message "Bump version to X.X".
+
+### Branch rules
+10. **Repo handling**: do any modifications **only** on the dev branch. Pushing code is allowed only to this branch.
+11. **Main branch**: no push allowed. Only if the user explicitly asks, is merging the dev branch into main allowed.
