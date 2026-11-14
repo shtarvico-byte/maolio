@@ -335,8 +335,15 @@ var GitHubSync = (function () {
       if (l && r) {
         var lChanged = !b || ts(l) !== ts(b) || JSON.stringify(l) !== JSON.stringify(b);
         var rChanged = !b || ts(r) !== ts(b) || JSON.stringify(r) !== JSON.stringify(b);
-        if (lChanged && rChanged) out.push(ts(l) >= ts(r) ? l : r); /* conflict: newer updatedAt wins */
-        else if (lChanged) out.push(l);
+        if (lChanged && rChanged) {
+          // Both sides changed: keep both to avoid data loss
+          // If there's no base, both were added independently -> keep both
+          // If there's a base, both were modified -> keep both
+          out.push(l);
+          var conflictRow = JSON.parse(JSON.stringify(r));
+          conflictRow.id = r.id + "-gh-conflict-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+          out.push(conflictRow);
+        } else if (lChanged) out.push(l);
         else if (rChanged) out.push(r);
         else out.push(b || l);
       } else if (l && !r) {
@@ -437,6 +444,14 @@ var GitHubSync = (function () {
             "OK = Upload local data to GitHub (replaces the remote file)\n" +
             "Cancel = Download from GitHub (replaces local data; a backup is saved first)");
           if (!upload) {
+            var localHasData = getLocal() && getLocal().sheets && getLocal().sheets.some(function(s) {
+                return s && s.rows && s.rows.length > 0;
+              });
+              if (localHasData) {
+                if (!confirmImpl("WARNING: You have local data that will be REPLACED by the GitHub version. A backup will be saved. Continue?")) {
+              throw GhError(0, "cancelled");
+            }
+          }
             if (!confirmImpl("Download from GitHub and replace your local data? A safety backup is written first.")) {
               throw GhError(0, "cancelled");
             }
