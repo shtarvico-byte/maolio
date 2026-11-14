@@ -416,6 +416,7 @@
       <div id="app-menu" class="menu" hidden>
           <button onclick="menuAction(newSheet)">+ New sheet</button>
           <button onclick="menuAction(renameSheet)">✎ Rename sheet</button>
+          <button onclick="menuAction(deleteSheet)">🗑 Delete sheet</button>
           <button onclick="menuAction(restoreBackup)">↺ Restore backup</button>
           <button id="menu-update" onclick="menuAction(checkForUpdate)">⤓ Update app</button>
           <hr class="menu-sep">
@@ -832,6 +833,28 @@ function renameSheet() {
   if (name !== s.name) { s.name = name; s.renamedAt = Date.now(); s.updatedAt = Date.now(); }
   saveSheets();
   renderSheetSelect();
+}
+
+function deleteSheet() {
+  var s = sheetById(currentSheetId);
+  if (!s) return;
+  if (sheets.length <= 1) {
+    alert("You must keep at least one sheet.");
+    return;
+  }
+  var msg = "Delete sheet "" + s.name + ""?
+
+This will delete " + s.rows.length + " rows. This cannot be undone.";
+  if (!confirm(msg)) return;
+  sheets = sheets.filter(function (sh) { return sh.id !== s.id; });
+  if (currentSheetId === s.id) {
+    currentSheetId = sheets[0].id;
+    rows = sheets[0].rows;
+  }
+  saveSheets();
+  renderSheetSelect();
+  renderTable();
+  renderLearn();
 }
 
 function renderSheetSelect() {
