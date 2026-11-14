@@ -88,6 +88,45 @@
     font-size: 1.25rem; flex: 1;
     text-shadow: 0 1px 2px rgba(0,0,0,.5);
   }
+  .header-left { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; }
+  .header-center { display: flex; align-items: center; gap: 8px; }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  .sync-status-light {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid rgba(255,255,255,0.5);
+    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+  }
+  .sync-status-light.red { background: #ff4444; }
+  .sync-status-light.yellow { background: #ffcc00; }
+  .sync-status-light.green { background: #00cc00; }
+  .sync-status-tooltip {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2b1608;
+    color: #fff;
+    border: 2px solid var(--theme);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    z-index: 60;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .sync-status-tooltip::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: var(--theme);
+  }
+
   .tabs { display: flex; gap: 8px; }
   .tab-btn {
     background: rgba(255,255,255,.2);
@@ -159,7 +198,7 @@
   .btn.danger { background: var(--danger); }
   .btn:disabled { opacity: .4; cursor: default; }
   table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
-  th, td { border: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: middle; }
+  th, td { border: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: middle; word-wrap: break-word; }
   th { background: var(--th-accent); color: var(--theme-dark); font-size: .95rem; padding: 10px; }
   td input, td textarea {
     width: 100%;
@@ -354,23 +393,27 @@
   <button onclick="dismissRecovered()">OK</button>
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
-  <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.0</span></h1>
-  <nav class="tabs">
-    <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
-    <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
-    <button class="tab-btn" id="tab-write" onclick="switchTab('write')">Write</button>
-    <button class="tab-btn" id="tab-conflicts" onclick="switchTab('conflicts')" hidden>Conflicts</button>
-  </nav>
-  <button class="tab-btn new-row-btn" onclick="addRowFromAnywhere()" title="Add a new vocabulary row">+ Row</button>
-</header>
-<main>
-  <section id="view-table">
-    <div class="toolbar">
-      <button class="btn" onclick="addRow()">+ Add row</button>
-      <select id="sheet-select" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
-      <div class="menu-wrap">
-        <button class="btn secondary" onclick="toggleMenu(event)" title="Sheet and app actions">☰ Menu</button>
-        <div id="app-menu" class="menu" hidden>
+  <div class="header-left">
+    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.0</span></h1>
+  </div>
+  <div class="header-center">
+    <select id="sheet-select-header" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
+    <button class="tab-btn new-row-btn" onclick="addRowFromAnywhere()" title="Add a new vocabulary row">+ Row</button>
+  </div>
+  <div class="header-right">
+    <nav class="tabs">
+      <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
+      <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
+      <button class="tab-btn" id="tab-write" onclick="switchTab('write')">Write</button>
+      <button class="tab-btn" id="tab-conflicts" onclick="switchTab('conflicts')" hidden>Conflicts</button>
+    </nav>
+    <div style="position: relative;">
+      <div id="sync-status-light" class="sync-status-light" onclick="toggleSyncTooltip()"></div>
+      <div id="sync-status-tooltip" class="sync-status-tooltip" hidden></div>
+    </div>
+    <div class="menu-wrap">
+      <button class="tab-btn" onclick="toggleMenu(event)" title="Sheet and app actions">Menu</button>
+      <div id="app-menu" class="menu" hidden>
           <button onclick="menuAction(newSheet)">+ New sheet</button>
           <button onclick="menuAction(renameSheet)">✎ Rename sheet</button>
           <button onclick="menuAction(restoreBackup)">↺ Restore backup</button>
@@ -389,10 +432,16 @@
           <button id="menu-github-disconnect" onclick="menuAction(GitHubSync.disconnect)" hidden>Disconnect GitHub</button><hr class="menu-sep"><hr class="menu-sep">
           <button id="menu-theme" onclick="menuAction(toggleTheme)">🐱 Theme: Tiger</button>
         </div>
-      </div>
-      <span class="count-badge" id="table-count"></span>
-    </div>
-    <table>
+  </div>
+</header>
+<main>
+  <section id="view-table">
+        <div class="toolbar">
+          <button class="btn" onclick="addRow()">+ Add row</button>
+          <select id="sheet-select" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
+          <span class="count-badge" id="table-count"></span>
+        </div>
+        <table>
       <thead>
         <tr>
           <th style="width:22%">English</th>
@@ -789,15 +838,20 @@ function renameSheet() {
 
 function renderSheetSelect() {
   var sel = document.getElementById("sheet-select");
-  if (!sel) return;
-  sel.innerHTML = "";
-  sheets.forEach(function (s) {
-    var opt = document.createElement("option");
-    opt.value = s.id;
-    opt.textContent = s.name;
-    if (s.id === currentSheetId) opt.selected = true;
-    sel.appendChild(opt);
-  });
+  var selHeader = document.getElementById("sheet-select-header");
+  function updateSelect(selectEl) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    sheets.forEach(function (s) {
+      var opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (s.id === currentSheetId) opt.selected = true;
+      selectEl.appendChild(opt);
+    });
+  }
+  updateSelect(sel);
+  updateSelect(selHeader);
 }
 
 function addRowFromAnywhere() {
@@ -1635,6 +1689,8 @@ function checkForUpdate() {
 document.addEventListener("click", function (ev) {
   var menu = document.getElementById("app-menu");
   if (menu && !menu.hidden && !menu.parentNode.contains(ev.target)) closeMenu();
+  var tooltip = document.getElementById("sync-status-tooltip");
+  if (tooltip && !tooltip.hidden && ev.target.id !== "sync-status-light") tooltip.hidden = true;
 });
 
 /* ---------- Local file backup (Downloads folder) ---------- */
@@ -1853,6 +1909,9 @@ var syncUrl = null;
 var syncEnabled = false;
 var syncDeviceId = null;
 var conflicts = [];
+/* Sync status: 'failed', 'syncing', 'success', or 'not-synced' */
+var syncStatus = "not-synced";
+var syncStatusDetails = "Not synced yet";
 
 function getDeviceId() {
   if (syncDeviceId) return syncDeviceId;
@@ -1919,6 +1978,29 @@ function updateSyncMenu() {
   if (ghOffBtn) ghOffBtn.hidden = !(typeof GitHubSync !== "undefined" && activeBackend === "github" && GitHubSync.state().connected);
 }
 
+function updateSyncStatusLight() {
+  var light = document.getElementById("sync-status-light");
+  if (!light) return;
+  light.className = "sync-status-light";
+  if (syncStatus === "failed") light.classList.add("red");
+  else if (syncStatus === "syncing") light.classList.add("yellow");
+  else if (syncStatus === "success") light.classList.add("green");
+  else light.classList.add("yellow");
+}
+
+function setSyncStatus(status, details) {
+  syncStatus = status;
+  syncStatusDetails = details;
+  updateSyncStatusLight();
+}
+
+function toggleSyncTooltip() {
+  var tooltip = document.getElementById("sync-status-tooltip");
+  if (!tooltip) return;
+  tooltip.textContent = syncStatusDetails;
+  tooltip.hidden = !tooltip.hidden;
+}
+
 function configureSync() {
   var modal = document.getElementById("sync-modal");
   var input = document.getElementById("sync-url-input");
@@ -1930,6 +2012,7 @@ function disconnectUrlSync() {
   syncUrl = null; syncEnabled = false;
   try { localStorage.removeItem(SYNC_URL_KEY); localStorage.removeItem(SYNC_ENABLED_KEY); } catch (e) {}
   updateSyncMenu();
+  setSyncStatus("not-synced", "URL sync disconnected");
   showSyncBanner("URL sync disconnected.");
 }
 
@@ -1944,6 +2027,7 @@ function saveSyncConfig() {
     localStorage.setItem(SYNC_ENABLED_KEY, "true");
   } catch (e) { alert("Could not save: " + (e.message || e)); return; }
   closeSyncModal(); updateSyncMenu();
+  setSyncStatus("syncing", "Sync configured. Testing...");
   showSyncBanner("Sync configured. Testing..."); syncNow();
 }
 
@@ -2064,19 +2148,31 @@ function mergeData(localSheets, remoteData) {
 }
 
 function syncNow() {
-  if (!syncUrl) { showSyncBanner("Sync URL not configured"); return; }
-  if (!syncEnabled) { showSyncBanner("Sync is paused"); return; }
-  showSyncBanner("Syncing..."); backupSheets();
+  if (!syncUrl) { showSyncBanner("Sync URL not configured"); setSyncStatus("failed", "Sync URL not configured"); return; }
+  if (!syncEnabled) { showSyncBanner("Sync is paused"); setSyncStatus("failed", "Sync is paused"); return; }
+  setSyncStatus("syncing", "Syncing..."); showSyncBanner("Syncing..."); backupSheets();
   fetchRemoteBackup().then(function(remoteData) {
     var merged = mergeData(sheets, remoteData);
     conflicts = merged.conflicts || []; sheets = merged.sheets;
     currentSheetId = merged.currentSheetId || sheets[0].id;
     if (!sheets.some(function(s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
     rows = sheetById(currentSheetId).rows; saveSheets(); renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
-    if (merged.conflicts && merged.conflicts.length > 0) { showSyncBanner("Sync complete with " + merged.conflicts.length + " conflicts. Check Conflicts tab."); return; }
+    if (merged.conflicts && merged.conflicts.length > 0) { 
+      showSyncBanner("Sync complete with " + merged.conflicts.length + " conflicts. Check Conflicts tab."); 
+      setSyncStatus("success", "Sync complete with " + merged.conflicts.length + " conflicts"); 
+      return; 
+    }
     return uploadToRemote(buildSyncPayload());
-  }).then(function() { if (conflicts.length === 0) showSyncBanner("Sync complete!"); })
-    .catch(function(e) { showSyncBanner("Sync error: " + (e.message || e)); });
+  }).then(function() { 
+    if (conflicts.length === 0) { 
+      showSyncBanner("Sync complete!"); 
+      setSyncStatus("success", "Sync complete!"); 
+    }
+  })
+    .catch(function(e) { 
+      showSyncBanner("Sync error: " + (e.message || e)); 
+      setSyncStatus("failed", "Sync error: " + (e.message || e)); 
+    });
 }
 
 function updateConflictsTab() {
@@ -2584,8 +2680,13 @@ loadSyncConfig();
 loadDriveConfig();
 loadDriveMaxSeq();
 if (typeof GitHubSync !== "undefined") {
-  window.GitHubSyncOnStateChange = updateSyncMenu;
-  window.GitHubSyncOnMessage = function (msg) { showSyncBanner(msg); };
+  window.GitHubSyncOnStateChange = function() { updateSyncMenu(); updateSyncStatusLight(); };
+  window.GitHubSyncOnMessage = function (msg, isError) { 
+    showSyncBanner(msg); 
+    if (isError) setSyncStatus("failed", msg);
+    else if (msg.includes("syncing") || msg.includes("Syncing")) setSyncStatus("syncing", msg);
+    else setSyncStatus("success", msg);
+  };
   GitHubSync.init(); /* pulls from GitHub on app start when GitHub is the active backend */
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "visible") GitHubSync.pullNow();
@@ -2599,6 +2700,7 @@ updateModeToggles();
 renderSheetSelect();
 renderTable();
 watchForUpdates();
+updateSyncStatusLight();
 </script>
 <div id="drive-modal" class="modal" hidden>
   <div class="modal-content">
