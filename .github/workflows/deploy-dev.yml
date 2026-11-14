@@ -27,4 +27,4 @@ jobs:
           publish_branch: main
           publish_dir: .
           destination_dir: dev
-          keep_files: true
+          keep_files: false
