@@ -1932,6 +1932,70 @@ function loadSyncConfig() {
   updateSyncMenu();
 }
 
+function updateGitHubSyncStatus() {
+  if (typeof GitHubSync === "undefined") return null;
+  var gh = GitHubSync.state();
+  if (gh.connected) {
+    if (gh.needsReconnect) {
+      return { status: "failed", details: "GitHub needs reconnect" };
+    } else if (gh.pending) {
+      return { status: "syncing", details: "GitHub has pending changes" };
+    } else if (gh.lastSyncAt > 0) {
+      return { status: "success", details: "GitHub sync active" };
+    } else {
+      return { status: "syncing", details: "GitHub sync initializing" };
+    }
+  } else {
+    return null; // Not configured
+  }
+}
+
+function updateAllSyncStatus() {
+  var statuses = [];
+  
+  // Check URL sync
+  if (syncUrl && syncEnabled) {
+    if (syncStatus === "failed") {
+      statuses.push({ status: "failed", details: syncStatusDetails });
+    } else if (syncStatus === "syncing") {
+      statuses.push({ status: "syncing", details: syncStatusDetails });
+    } else if (syncStatus === "success") {
+      statuses.push({ status: "success", details: syncStatusDetails });
+    }
+  }
+  
+  // Check Drive sync
+  var driveStatus = updateDriveSyncStatus();
+  if (driveStatus) statuses.push(driveStatus);
+  
+  // Check GitHub sync
+  var ghStatus = updateGitHubSyncStatus();
+  if (ghStatus) statuses.push(ghStatus);
+  
+  // Determine overall status
+  if (statuses.length === 0) {
+    setSyncStatus("not-synced", "No sync configured");
+  } else {
+    // If any sync is failed, show failed
+    var hasFailed = statuses.some(s => s.status === "failed");
+    var hasSyncing = statuses.some(s => s.status === "syncing");
+    var hasSuccess = statuses.some(s => s.status === "success");
+    
+    if (hasFailed) {
+      var failed = statuses.find(s => s.status === "failed");
+      setSyncStatus("failed", failed.details);
+    } else if (hasSyncing) {
+      var syncing = statuses.find(s => s.status === "syncing");
+      setSyncStatus("syncing", syncing.details);
+    } else if (hasSuccess) {
+      var success = statuses.find(s => s.status === "success");
+      setSyncStatus("success", success.details);
+    } else {
+      setSyncStatus("not-synced", "Sync not started");
+    }
+  }
+}
+
 function updateSyncMenu() {
   var activeBackend = typeof GitHubSync !== "undefined" ? GitHubSync.activeBackend() : "off";
   
@@ -2513,11 +2577,26 @@ function driveSyncNow(manual) {
     driveSyncInFlight = false;
     driveSyncManual = false;
     updateSyncMenu();
+    updateDriveSyncStatus();
     /* if the user edited while a sync was running, run another pass */
     if (driveDirtyAt > syncStartAt) scheduleDriveSync();
     return ok;
   });
 }
+
+function updateDriveSyncStatus() {
+  if (!driveIsConfigured()) {
+    return null;
+  }
+  if (driveSyncInFlight) {
+    return { status: "syncing", details: "Drive sync in progress" };
+  } else if (driveLastSyncAt > 0) {
+    return { status: "success", details: "Drive sync active" };
+  } else {
+    return { status: "not-synced", details: "Drive sync not started" };
+  }
+}
+
 /* Auto-sync loop: run shortly after edits (scheduleSync hook), plus a
    periodic pull so changes made on other devices appear automatically. */
 var driveAutoTimer = null;
@@ -2541,7 +2620,8 @@ function stopDriveAutoSync() {
 }
 function driveSyncNowManual() {
   if (!driveIsConfigured()) { alert("Google Drive sync is not configured."); return; }
-  if (driveSyncInFlight) { showSyncBanner("Drive sync already running..."); return; }
+  if (driveSyncInFlight) { showSyncBanner("Drive sync already running..."); setSyncStatus("syncing", "Drive sync already running..."); return; }
+  setSyncStatus("syncing", "Drive sync starting...");
   driveSyncNow(true);
 }
 function restoreFromCloud() {
@@ -2680,11 +2760,16 @@ loadSyncConfig();
 loadDriveConfig();
 loadDriveMaxSeq();
 if (typeof GitHubSync !== "undefined") {
-  window.GitHubSyncOnStateChange = function() { updateSyncMenu(); updateSyncStatusLight(); };
+  window.GitHubSyncOnStateChange = function() { 
+    updateSyncMenu(); 
+    updateSyncStatusLight();
+    updateAllSyncStatus();
+  };
   window.GitHubSyncOnMessage = function (msg, isError) { 
     showSyncBanner(msg); 
     if (isError) setSyncStatus("failed", msg);
-    else if (msg.includes("syncing") || msg.includes("Syncing")) setSyncStatus("syncing", msg);
+    else if (msg.includes("syncing") || msg.includes("Syncing") || msg.includes("Syncing")) setSyncStatus("syncing", msg);
+    else if (msg.includes("downloaded") || msg.includes("connected") || msg.includes("complete")) setSyncStatus("success", msg);
     else setSyncStatus("success", msg);
   };
   GitHubSync.init(); /* pulls from GitHub on app start when GitHub is the active backend */
@@ -2701,6 +2786,7 @@ renderSheetSelect();
 renderTable();
 watchForUpdates();
 updateSyncStatusLight();
+if (typeof GitHubSync !== "undefined") updateAllSyncStatus();
 </script>
 <div id="drive-modal" class="modal" hidden>
   <div class="modal-content">
