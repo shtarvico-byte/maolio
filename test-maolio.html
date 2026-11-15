@@ -394,6 +394,22 @@
     });
   }
 
+  function testSwNetworkFirstForAppCode() {
+    // Regression: the app shell used to be cache-first, so installed clients
+    // could run a stale index.html / sync-github.js indefinitely. sw.js must
+    // serve navigations and app code network-first, cache only as fallback.
+    return fetch("sw.js").then(function (r) { return r.text(); }).then(function (src) {
+      assert(src.indexOf('event.request.mode === "navigate"') !== -1,
+        "sw.js must treat navigations as app code");
+      assert(/if \(isAppCode\) \{[\s\S]*?fetch\(event\.request\)/.test(src),
+        "sw.js must try the network first for app code (index.html / sync-github.js)");
+      assert(src.indexOf("caches.match(event.request)") !== -1 &&
+             /if \(isAppCode\) \{[\s\S]*?caches\.match/.test(src),
+        "sw.js must fall back to cache for app code only when offline");
+      report("sw.js serves app shell network-first; cache is offline fallback only", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -414,7 +430,8 @@
       ["auth-401", testAuthFailure],
       ["delete-guard", testDeleteGuard],
       ["rows-relink-after-apply", testRowsRelinkedAfterApply],
-      ["update-reload-wired", testUpdateReloadWired]
+      ["update-reload-wired", testUpdateReloadWired],
+      ["sw-network-first-app-code", testSwNetworkFirstForAppCode]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
