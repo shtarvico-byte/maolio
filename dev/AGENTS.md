@@ -42,3 +42,6 @@ Chinese learning app. Static PWA with no build step, no framework, no npm depend
 ### Deployment output rules
 13. **`/dev/` on main is generated output**: the `deploy-dev` workflow publishes the dev branch into the `dev/` directory of main (`destination_dir: dev`, `keep_files: false`). Never commit a `dev/` directory on the dev branch; if one appears, remove it before merging. Never set `keep_files` back to `true`.
 14. **Merging dev into main**: the generated `dev/` tree conflicts (modify/delete) with its removal on dev. Always resolve `dev/` in favor of main's deployed copy — never let a dev-branch `dev/` directory into main. After merging, re-run the `deploy-dev` workflow (workflow_dispatch) to refresh `/dev/` from the dev tip.
+
+### APP requirements
+15. **caching**: app shell must stay network-first in sw.js; bump CACHE_NAME on any sw.js change
