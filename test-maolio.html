@@ -344,6 +344,41 @@
     });
   }
 
+  function testRowsRelinkedAfterApply() {
+    // Regression: applyLocal used to replace window.sheets without re-linking
+    // window.rows, so table edits after a sync landed in the stale pre-merge
+    // array and were never saved to localStorage, backups, or the cloud.
+    reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
+    window.rows = window.sheets[0].rows;
+    window.sheetById = function (id) {
+      for (var i = 0; i < window.sheets.length; i++) if (window.sheets[i].id === id) return window.sheets[i];
+      return window.sheets[0];
+    };
+    window.__fetchQueue = [
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),   // GET raw ?ref= + fallback + trees
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),   // GET sha ?ref= + fallback + trees
+      window.__res(201, {}) // initial upload -> snapshot
+    ];
+    return GitHubSync.syncNow(true).then(function () {
+      var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(2).concat([{ id: "r9", en: "remote", updatedAt: 500 }]) }], currentSheetId: "s1" };
+      window.__fetchQueue = [
+        window.__res(200, remote),                 // GET raw
+        window.__res(200, { sha: "s1" }),          // GET sha
+        window.__res(200, { content: { sha: "s2" } }) // PUT
+      ];
+      return GitHubSync.syncNow(true).then(function (ok) {
+        assert(ok === true, "syncNow should succeed");
+        assert(window.sheets[0].rows.some(function (r) { return r.id === "r9"; }), "remote row should be merged into window.sheets");
+        assert(window.rows === window.sheets[0].rows, "window.rows must be re-linked to the current sheet's rows after applyLocal");
+        window.rows[0].en = "edited-after-sync";
+        assert(window.sheets[0].rows[0].en === "edited-after-sync", "edit after sync must land in window.sheets so saveSheets/backup/push persist it");
+        delete window.rows;
+        delete window.sheetById;
+        report("applyLocal re-links window.rows to the merged sheet; edits after a sync are persisted", true);
+      });
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -362,7 +397,8 @@
       ["ref-404-fallback", testRef404Fallback],
       ["trees-fallback", testTreesFallback],
       ["auth-401", testAuthFailure],
-      ["delete-guard", testDeleteGuard]
+      ["delete-guard", testDeleteGuard],
+      ["rows-relink-after-apply", testRowsRelinkedAfterApply]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {

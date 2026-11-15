@@ -83,6 +83,15 @@ var GitHubSync = (function () {
       if (typeof window !== "undefined" && window.sheets !== undefined) {
         window.sheets = data.sheets;
         window.currentSheetId = data.currentSheetId;
+        /* Re-link the app's `rows` to the new current sheet, otherwise edits
+           land in the stale pre-merge array and are never saved or synced. */
+        if (typeof window.sheetById === "function") {
+          var cur = window.sheetById(window.currentSheetId);
+          if (cur && Array.isArray(cur.rows)) {
+            window.rows = cur.rows;
+            window.currentSheetId = cur.id;
+          }
+        }
         if (typeof window.saveSheets === "function") window.saveSheets();
         if (typeof window.renderSheetSelect === "function") window.renderSheetSelect();
         if (typeof window.renderTable === "function") window.renderTable();
