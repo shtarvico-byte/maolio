@@ -37,3 +37,7 @@ Chinese learning app. Static PWA with no build step, no framework, no npm depend
 ### Branch rules
 10. **Repo handling**: do any modifications **only** on the dev branch. Pushing code is allowed only to this branch.
 11. **Main branch**: no push allowed. Only if the user explicitly asks, is merging the dev branch into main allowed.
+
+### Deployment output rules
+12. **`/dev/` on main is generated output**: the `deploy-dev` workflow publishes the dev branch into the `dev/` directory of main (`destination_dir: dev`, `keep_files: false`). Never commit a `dev/` directory on the dev branch; if one appears, remove it before merging. Never set `keep_files` back to `true`.
+13. **Merging dev into main**: the generated `dev/` tree conflicts (modify/delete) with its removal on dev. Always resolve `dev/` in favor of main's deployed copy — never let a dev-branch `dev/` directory into main. After merging, re-run the `deploy-dev` workflow (workflow_dispatch) to refresh `/dev/` from the dev tip.
