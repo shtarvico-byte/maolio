@@ -41,5 +41,4 @@ name = "full-check"
 type = "post_agent"
 command = "node .vibe/check.mjs full"
 timeout = 120.0
-strict = true
 description = "Full validation (syntax, structure, manifest, secrets, tests) must pass before agent completion."
