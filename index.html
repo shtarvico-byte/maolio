@@ -1906,6 +1906,14 @@ function applyUpdate() {
 function watchForUpdates() {
   if (!("serviceWorker" in navigator)) return;
   try {
+    /* controllerchange fires on the page's ServiceWorkerContainer (not inside
+       the worker), so the reload after skip-waiting must be wired here. */
+    var reloadedForUpdate = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (reloadedForUpdate) return;
+      reloadedForUpdate = true;
+      window.location.reload();
+    });
     navigator.serviceWorker.register("sw.js").then(function (reg) {
       onWaitingWorker(reg);
       reg.addEventListener("updatefound", function () {

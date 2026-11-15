@@ -379,6 +379,21 @@
     });
   }
 
+  function testUpdateReloadWired() {
+    // Regression: the update banner's Reload button posts "skip-waiting" and
+    // relied on a "controllerchange" listener inside sw.js — but that event
+    // fires on the page's navigator.serviceWorker, never in the worker, so
+    // the click appeared to do nothing. The reload listener must live in the
+    // page (index.html).
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(html.indexOf('navigator.serviceWorker.addEventListener("controllerchange"') !== -1,
+        "index.html must register a page-side controllerchange listener to reload after skip-waiting");
+      assert(html.indexOf('postMessage("skip-waiting")') !== -1,
+        "applyUpdate must still tell the waiting worker to skip waiting");
+      report("update banner Reload works: page-side controllerchange listener present in index.html", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -398,7 +413,8 @@
       ["trees-fallback", testTreesFallback],
       ["auth-401", testAuthFailure],
       ["delete-guard", testDeleteGuard],
-      ["rows-relink-after-apply", testRowsRelinkedAfterApply]
+      ["rows-relink-after-apply", testRowsRelinkedAfterApply],
+      ["update-reload-wired", testUpdateReloadWired]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
