@@ -1,6 +1,7 @@
-var CACHE_NAME = "zht-vocab-v19";
+var CACHE_NAME = "zht-vocab-v22";
 /* Bump the version suffix (v1 → v2 → …) on every release so clients drop the old
-   cache and fetch the updated app shell. */
+   cache. App shell code (index.html / sync-github.js / navigations) is served
+   network-first below, so a stale cache is only ever an offline fallback. */
 var APP_SHELL = [
   "index.html",
   "sync-github.js",
@@ -38,27 +39,26 @@ self.addEventListener("activate", function (event) {
   );
 });
 
-self.addEventListener("controllerchange", function () {
-  // only reload once to avoid loops with multiple controller changes
-  if (self.__reloaded) return;
-  self.__reloaded = true;
-  self.clients.matchAll().then(function (clients) {
-    clients.forEach(function (client) {
-      client.navigate(client.url);
-    });
-  });
-});
+/* Note: the post-update page reload is wired in index.html via
+   navigator.serviceWorker "controllerchange" — that event fires on the
+   page's ServiceWorkerContainer, never inside this worker global. */
 
 self.addEventListener("fetch", function (event) {
   var url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   if (event.request.method !== "GET") return;
 
-  event.respondWith(
-    caches.match(event.request).then(function (cached) {
-      if (cached) return cached;
-      return fetch(event.request).then(function (response) {
-        if (response.ok && APP_SHELL.indexOf(url.pathname.replace(/^\//, "")) !== -1) {
+  var path = url.pathname.replace(/^\/+/, "");
+  var isAppCode = event.request.mode === "navigate" ||
+    path === "index.html" || path === "sync-github.js" ||
+    path.slice(-11) === "/index.html" || path.slice(-15) === "/sync-github.js";
+
+  if (isAppCode) {
+    /* Network-first for app code: online clients always run the latest
+       index.html / sync-github.js; the cache is only an offline fallback. */
+    event.respondWith(
+      fetch(event.request).then(function (response) {
+        if (response.ok) {
           var clone = response.clone();
           caches.open(CACHE_NAME).then(function (cache) {
             cache.put(event.request, clone);
@@ -66,9 +66,26 @@ self.addEventListener("fetch", function (event) {
         }
         return response;
       }).catch(function () {
-        if (event.request.mode === "navigate") {
-          return caches.match("index.html");
+        return caches.match(event.request).then(function (cached) {
+          return cached || caches.match("index.html");
+        });
+      })
+    );
+    return;
+  }
+
+  /* Cache-first for static assets (icons, manifest). */
+  event.respondWith(
+    caches.match(event.request).then(function (cached) {
+      if (cached) return cached;
+      return fetch(event.request).then(function (response) {
+        if (response.ok && APP_SHELL.indexOf(path) !== -1) {
+          var clone = response.clone();
+          caches.open(CACHE_NAME).then(function (cache) {
+            cache.put(event.request, clone);
+          });
         }
+        return response;
       });
     })
   );

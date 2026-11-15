@@ -344,6 +344,72 @@
     });
   }
 
+  function testRowsRelinkedAfterApply() {
+    // Regression: applyLocal used to replace window.sheets without re-linking
+    // window.rows, so table edits after a sync landed in the stale pre-merge
+    // array and were never saved to localStorage, backups, or the cloud.
+    reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
+    window.rows = window.sheets[0].rows;
+    window.sheetById = function (id) {
+      for (var i = 0; i < window.sheets.length; i++) if (window.sheets[i].id === id) return window.sheets[i];
+      return window.sheets[0];
+    };
+    window.__fetchQueue = [
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),   // GET raw ?ref= + fallback + trees
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),   // GET sha ?ref= + fallback + trees
+      window.__res(201, {}) // initial upload -> snapshot
+    ];
+    return GitHubSync.syncNow(true).then(function () {
+      var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(2).concat([{ id: "r9", en: "remote", updatedAt: 500 }]) }], currentSheetId: "s1" };
+      window.__fetchQueue = [
+        window.__res(200, remote),                 // GET raw
+        window.__res(200, { sha: "s1" }),          // GET sha
+        window.__res(200, { content: { sha: "s2" } }) // PUT
+      ];
+      return GitHubSync.syncNow(true).then(function (ok) {
+        assert(ok === true, "syncNow should succeed");
+        assert(window.sheets[0].rows.some(function (r) { return r.id === "r9"; }), "remote row should be merged into window.sheets");
+        assert(window.rows === window.sheets[0].rows, "window.rows must be re-linked to the current sheet's rows after applyLocal");
+        window.rows[0].en = "edited-after-sync";
+        assert(window.sheets[0].rows[0].en === "edited-after-sync", "edit after sync must land in window.sheets so saveSheets/backup/push persist it");
+        delete window.rows;
+        delete window.sheetById;
+        report("applyLocal re-links window.rows to the merged sheet; edits after a sync are persisted", true);
+      });
+    });
+  }
+
+  function testUpdateReloadWired() {
+    // Regression: the update banner's Reload button posts "skip-waiting" and
+    // relied on a "controllerchange" listener inside sw.js — but that event
+    // fires on the page's navigator.serviceWorker, never in the worker, so
+    // the click appeared to do nothing. The reload listener must live in the
+    // page (index.html).
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(html.indexOf('navigator.serviceWorker.addEventListener("controllerchange"') !== -1,
+        "index.html must register a page-side controllerchange listener to reload after skip-waiting");
+      assert(html.indexOf('postMessage("skip-waiting")') !== -1,
+        "applyUpdate must still tell the waiting worker to skip waiting");
+      report("update banner Reload works: page-side controllerchange listener present in index.html", true);
+    });
+  }
+
+  function testSwNetworkFirstForAppCode() {
+    // Regression: the app shell used to be cache-first, so installed clients
+    // could run a stale index.html / sync-github.js indefinitely. sw.js must
+    // serve navigations and app code network-first, cache only as fallback.
+    return fetch("sw.js").then(function (r) { return r.text(); }).then(function (src) {
+      assert(src.indexOf('event.request.mode === "navigate"') !== -1,
+        "sw.js must treat navigations as app code");
+      assert(/if \(isAppCode\) \{[\s\S]*?fetch\(event\.request\)/.test(src),
+        "sw.js must try the network first for app code (index.html / sync-github.js)");
+      assert(src.indexOf("caches.match(event.request)") !== -1 &&
+             /if \(isAppCode\) \{[\s\S]*?caches\.match/.test(src),
+        "sw.js must fall back to cache for app code only when offline");
+      report("sw.js serves app shell network-first; cache is offline fallback only", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -362,7 +428,10 @@
       ["ref-404-fallback", testRef404Fallback],
       ["trees-fallback", testTreesFallback],
       ["auth-401", testAuthFailure],
-      ["delete-guard", testDeleteGuard]
+      ["delete-guard", testDeleteGuard],
+      ["rows-relink-after-apply", testRowsRelinkedAfterApply],
+      ["update-reload-wired", testUpdateReloadWired],
+      ["sw-network-first-app-code", testSwNetworkFirstForAppCode]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
