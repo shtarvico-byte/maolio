@@ -2757,6 +2757,7 @@ function cleanupConflictArtifacts() {
     });
     sh.rows = out;
   });
+  rows = sheetById(currentSheetId).rows;
   try { localStorage.setItem(CONFLICT_CLEANUP_KEY, "1"); } catch (e) {}
   if (changed) saveSheets();
 }

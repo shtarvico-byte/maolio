@@ -86,6 +86,7 @@
     window.__backups = 0;
     window.sheets = localSheets;
     window.currentSheetId = localSheets.length ? localSheets[0].id : null;
+    window.rows = localSheets.length ? localSheets[0].rows : [];
     GitHubSync._load();
     GitHubSync._configure({ backend: "github", token: "test-pat", repo: "me/sync-repo", branch: "main", storage: "tester", connected: true });
   }
@@ -344,6 +345,36 @@
     });
   }
 
+  function testRowsRefAfterSync() {
+    // Regression: after a sync applies a remote merge, the app's live `rows`
+    // reference must be re-pointed at the merged sheet. Otherwise table edits
+    // mutate a detached array and are never saved, backed up, or synced.
+    reset([{ id: "s1", name: "S1", rows: mkRows(2) }]);
+    window.__fetchQueue = [
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),
+      window.__res(201, {})
+    ];
+    return GitHubSync.syncNow(true).then(function () {
+      var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(2).concat([{ id: "r9", en: "remote", updatedAt: 500 }]) }], currentSheetId: "s1" };
+      window.__fetchQueue = [
+        window.__res(200, remote),
+        window.__res(200, { sha: "s1" }),
+        window.__res(200, { content: { sha: "s2" } })
+      ];
+      return GitHubSync.syncNow(true).then(function (ok) {
+        assert(ok === true, "second sync should succeed");
+        var cur = window.sheets.filter(function (s) { return s.id === window.currentSheetId; })[0];
+        assert(!!cur, "current sheet missing after merge");
+        assert(window.rows === cur.rows, "after a merge, window.rows must be the live rows array of the current sheet");
+        window.rows[0].en = "typed-after-sync";
+        assert(window.sheets.filter(function (s) { return s.id === window.currentSheetId; })[0].rows[0].en === "typed-after-sync",
+          "an edit through window.rows must land in window.sheets, otherwise it is never saved/backed up/synced");
+        report("after a sync merge, table edits through `rows` still land in `sheets` (saved, backed up, synced)", true);
+      });
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -362,7 +393,8 @@
       ["ref-404-fallback", testRef404Fallback],
       ["trees-fallback", testTreesFallback],
       ["auth-401", testAuthFailure],
-      ["delete-guard", testDeleteGuard]
+      ["delete-guard", testDeleteGuard],
+      ["rows-ref-after-sync", testRowsRefAfterSync]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {

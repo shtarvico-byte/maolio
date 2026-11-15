@@ -83,6 +83,12 @@ var GitHubSync = (function () {
       if (typeof window !== "undefined" && window.sheets !== undefined) {
         window.sheets = data.sheets;
         window.currentSheetId = data.currentSheetId;
+        if (typeof window.rows !== "undefined") {
+          var cur = null;
+          (data.sheets || []).forEach(function (s) { if (s && s.id === data.currentSheetId) cur = s; });
+          if (!cur && Array.isArray(data.sheets) && data.sheets.length) cur = data.sheets[0];
+          window.rows = (cur && Array.isArray(cur.rows)) ? cur.rows : [];
+        }
         if (typeof window.saveSheets === "function") window.saveSheets();
         if (typeof window.renderSheetSelect === "function") window.renderSheetSelect();
         if (typeof window.renderTable === "function") window.renderTable();
