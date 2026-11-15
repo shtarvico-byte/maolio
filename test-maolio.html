@@ -344,6 +344,47 @@
     });
   }
 
+  function testRowsStayAttachedAfterSync() {
+    // Regression: a GitHub sync replaces window.sheets via applyLocal with
+    // freshly merged sheet/rows arrays. The app edits window.rows, so
+    // applyLocal must re-point window.rows at the current sheet's rows;
+    // otherwise rows added after a sync render but are never persisted,
+    // exported or pushed.
+    reset([{ id: "s1", name: "S1", rows: mkRows(3) }]);
+    window.sheetById = function (id) {
+      for (var i = 0; i < window.sheets.length; i++) if (window.sheets[i].id === id) return window.sheets[i];
+      return window.sheets[0];
+    };
+    window.rows = window.sheets[0].rows;
+    window.__fetchQueue = [
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),  // pull: ref/noref/trees -> no remote
+      window.__res(404, "nf"), window.__res(404, "nf"), window.__res(404, "nf"),  // sha: ref/noref/trees -> create
+      window.__res(201, { content: { sha: "new-sha" } })                          // PUT create
+    ];
+    return GitHubSync.syncNow(true).then(function (ok) {
+      assert(ok === true, "first sync should succeed");
+      assert(window.rows === window.sheetById(window.currentSheetId).rows,
+        "after sync, window.rows must be the live rows array of the current sheet");
+      window.rows.push({ id: "r-new", en: "new word", pinyin: "", hanzi: "", note: "", updatedAt: Date.now() });
+      assert(window.sheets.some(function (s) { return s.rows.some(function (r) { return r.id === "r-new"; }); }),
+        "a row added through window.rows must land in window.sheets (so it is saved, exported and synced)");
+      var remote = { sheets: [{ id: "s1", name: "S1", rows: mkRows(3) }], currentSheetId: "s1" };
+      window.__fetchQueue = [
+        window.__res(200, remote),              // pull
+        window.__res(200, { sha: "abc" }),      // sha
+        window.__res(200, { content: { sha: "def" } }) // PUT update
+      ];
+      return GitHubSync.syncNow(true).then(function (ok2) {
+        assert(ok2 === true, "second sync should succeed");
+        var p = puts();
+        var last = decodePut(p[p.length - 1]);
+        assert(last.sheets[0].rows.some(function (r) { return r.id === "r-new"; }),
+          "the row added after the first sync must be pushed to GitHub");
+        report("after a GitHub sync, window.rows stays attached to the current sheet: new rows persist, export and sync", true);
+      });
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -362,7 +403,8 @@
       ["ref-404-fallback", testRef404Fallback],
       ["trees-fallback", testTreesFallback],
       ["auth-401", testAuthFailure],
-      ["delete-guard", testDeleteGuard]
+      ["delete-guard", testDeleteGuard],
+      ["rows-attached-after-sync", testRowsStayAttachedAfterSync]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {

@@ -83,6 +83,10 @@ var GitHubSync = (function () {
       if (typeof window !== "undefined" && window.sheets !== undefined) {
         window.sheets = data.sheets;
         window.currentSheetId = data.currentSheetId;
+        if (typeof window.sheetById === "function") {
+          var cur = window.sheetById(window.currentSheetId) || window.sheets[0];
+          if (cur && Array.isArray(cur.rows)) window.rows = cur.rows;
+        }
         if (typeof window.saveSheets === "function") window.saveSheets();
         if (typeof window.renderSheetSelect === "function") window.renderSheetSelect();
         if (typeof window.renderTable === "function") window.renderTable();

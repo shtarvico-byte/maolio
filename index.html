@@ -2757,6 +2757,8 @@ function cleanupConflictArtifacts() {
     });
     sh.rows = out;
   });
+  var curSheet = sheetById(currentSheetId);
+  if (curSheet) rows = curSheet.rows;
   try { localStorage.setItem(CONFLICT_CLEANUP_KEY, "1"); } catch (e) {}
   if (changed) saveSheets();
 }
