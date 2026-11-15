@@ -39,6 +39,6 @@ description = "Fast checks (JS syntax, HTML structure, manifest) on edited files
 [[hooks]]
 name = "full-check"
 type = "post_agent"
-command = "node .vibe/check.mjs full"
+command = "node .vibe/check.mjs full >/dev/null"
 timeout = 120.0
 description = "Full validation (syntax, structure, manifest, secrets, tests) must pass before agent completion."
