@@ -506,7 +506,7 @@
 <script>
 "use strict";
 
-var APP_VERSION = "6.5";
+var APP_VERSION = "6.6";
 var APP_BRANCH = (function() {
   var path = window.location.pathname;
   if (path.includes("/dev/") || path.includes("/dev")) {
@@ -2776,6 +2776,7 @@ window.addEventListener("online", function () { if (driveIsConfigured()) driveSy
 loadSheets();
 loadDeletedRows();
 cleanupConflictArtifacts();
+rows = sheetById(currentSheetId).rows;
 loadSyncConfig();
 loadDriveConfig();
 loadDriveMaxSeq();
