@@ -1,4 +1,4 @@
-var CACHE_NAME = "zht-vocab-v20";
+var CACHE_NAME = "zht-vocab-v21";
 /* Bump the version suffix (v1 → v2 → …) on every release so clients drop the old
    cache and fetch the updated app shell. */
 var APP_SHELL = [
@@ -38,16 +38,9 @@ self.addEventListener("activate", function (event) {
   );
 });
 
-self.addEventListener("controllerchange", function () {
-  // only reload once to avoid loops with multiple controller changes
-  if (self.__reloaded) return;
-  self.__reloaded = true;
-  self.clients.matchAll().then(function (clients) {
-    clients.forEach(function (client) {
-      client.navigate(client.url);
-    });
-  });
-});
+/* Note: the post-update page reload is wired in index.html via
+   navigator.serviceWorker "controllerchange" — that event fires on the
+   page's ServiceWorkerContainer, never inside this worker global. */
 
 self.addEventListener("fetch", function (event) {
   var url = new URL(event.request.url);
