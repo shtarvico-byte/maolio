@@ -432,6 +432,26 @@
     });
   }
 
+  function testWriteOcr() {
+    // The Write tab's Check button must actually evaluate the drawing on-device
+    // (binarize canvas -> segment columns -> IoU match vs deck glyphs), not alert.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(html.indexOf('id="write-result"') !== -1, "write view needs a #write-result element for feedback");
+      assert(!/function checkWriting\(\)\s*\{\s*alert\(/.test(html),
+        "checkWriting must not be a bare alert anymore");
+      assert(/function checkWriting\(\)[\s\S]*?segmentColumns\(/.test(html),
+        "checkWriting must segment the drawing");
+      assert(/function checkWriting\(\)[\s\S]*?bestMatch\(/.test(html),
+        "checkWriting must match against deck hanzi");
+      for (const fn of ["canvasBitmap", "bitmapToGrid", "glyphGrid", "segmentColumns", "matchScore", "bestMatch", "deckChars"])
+        assert(html.indexOf("function " + fn + "(") !== -1, "missing recognizer function " + fn);
+      assert(/function clearCanvas\(\)\s*\{\s*clearWriteResult\(\)/.test(html),
+        "Clear / new card must reset the result");
+      assert(html.indexOf("OCR_MATCH_MIN") !== -1, "a match threshold must gate the ✓ verdict");
+      report("write OCR: Check evaluates the drawing per character against deck hanzi (canvas bitmap -> segments -> IoU vs glyphs), result in #write-result", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -454,7 +474,8 @@
       ["rows-relink-after-apply", testRowsRelinkedAfterApply],
       ["update-reload-wired", testUpdateReloadWired],
       ["sw-network-first-app-code", testSwNetworkFirstForAppCode],
-      ["write-guide-overlay", testWriteGuideOverlay]
+      ["write-guide-overlay", testWriteGuideOverlay],
+      ["write-ocr-check", testWriteOcr]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {

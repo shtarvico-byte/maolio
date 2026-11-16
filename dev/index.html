@@ -315,6 +315,10 @@
     cursor: crosshair;
   }
   #write-guide { position: absolute; top: 3px; left: 3px; right: 3px; bottom: 3px; pointer-events: none; }
+  .write-result { font-size: 1.1rem; font-weight: 700; text-align: center; }
+  .write-result.ok { color: #15803d; }
+  .write-result.bad { color: var(--danger); }
+  .write-result.warn { color: var(--muted); }
   .write-controls { display: flex; flex-direction: column; gap: 12px; align-items: center; }
   .write-nav { display: flex; gap: 12px; align-items: center; }
   #update-banner {
@@ -396,7 +400,7 @@
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
   <div class="header-left">
-    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.11</span></h1>
+    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.12</span></h1>
   </div>
   <div class="header-center">
     <select id="sheet-select-header" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
@@ -503,6 +507,7 @@
           <button class="btn secondary" onclick="navWrite(1)">Next →</button>
         </div>
       </div>
+      <div id="write-result" class="write-result" hidden></div>
     </div>
     <div class="empty-state" id="write-empty" hidden>Add some words in the Table tab first.</div>
   </section><section id="view-conflicts" hidden><div class="toolbar"><h3>Sync Conflicts</h3><button class="btn" onclick="resolveAllConflicts()">Resolve All</button></div><div id="conflicts-list" class="conflicts-list"></div></section>
@@ -512,7 +517,7 @@
 <script>
 "use strict";
 
-var APP_VERSION = "6.11";
+var APP_VERSION = "6.12";
 var APP_BRANCH = (function() {
   var path = window.location.pathname;
   if (path.includes("/dev/") || path.includes("/dev")) {
@@ -1524,6 +1529,7 @@ function stopDrawing() {
 }
 
 function clearCanvas() {
+  clearWriteResult();
   var canvas = document.getElementById("write-canvas");
   if (!canvas || !canvasCtx) return;
   
@@ -1624,7 +1630,38 @@ function navWrite(delta) {
 }
 
 function checkWriting() {
-  alert("Check your writing! Compare it to the hanzi above.");
+  var canvas = document.getElementById("write-canvas");
+  var list = writeRows();
+  var row = list[getWriteCardIndex()];
+  var target = row ? (row.hanzi || "").trim() : "";
+  var bmp = canvas ? canvasBitmap(canvas) : null;
+  if (!bmp) { showWriteResult("Draw something first — then Check.", "warn"); return; }
+  if (!target) return;
+  var chars = Array.from(target);
+  var segs = segmentColumns(bmp, chars.length);
+  var parts = [];
+  var allOk = true;
+  if (segs) {
+    var cands = deckChars();
+    for (var i = 0; i < segs.length; i++) {
+      var best = bestMatch(segs[i], cands);
+      var ok = best.s === chars[i] && best.score >= OCR_MATCH_MIN;
+      if (!ok) allOk = false;
+      parts.push(ok ? chars[i] + " ✓ " + Math.round(best.score * 100) + "%"
+                    : chars[i] + " ✗ → " + best.s + " " + Math.round(best.score * 100) + "%");
+    }
+  } else {
+    var whole = bitmapToGrid(bmp, bmp.minX, bmp.minY, bmp.maxX, bmp.maxY);
+    var words = [], seen = {};
+    list.forEach(function (r) {
+      var h = (r.hanzi || "").trim();
+      if (h && !seen[h]) { seen[h] = 1; words.push(h); }
+    });
+    var bw = bestMatch(whole, words);
+    allOk = bw.s === target && bw.score >= OCR_MATCH_MIN;
+    parts.push((allOk ? "✓ " : "✗ → " + bw.s + " ") + Math.round(bw.score * 100) + "%");
+  }
+  showWriteResult((allOk ? "✓ Well done!  " : "✗ Not quite —  ") + parts.join("   ·   "), allOk ? "ok" : "bad");
 }
 
 function switchTab(tab) {
@@ -1711,6 +1748,156 @@ function loadTheme() {
 function loadWriteGuide() {
   try { writeGuideOn = localStorage.getItem(WRITE_GUIDE_KEY) !== "0"; } catch (e) { writeGuideOn = true; }
   updateWriteGuideBtn();
+}
+
+/* ---------- Write OCR: evaluate the drawing against the deck, on-device ---------- */
+
+var OCR_GRID = 48;
+var OCR_MATCH_MIN = 0.3;
+var glyphCache = {};
+
+function canvasBitmap(canvas) {
+  var w = canvas.width, h = canvas.height;
+  if (!w || !h) return null;
+  var img;
+  try { img = canvas.getContext("2d").getImageData(0, 0, w, h); } catch (e) { return null; }
+  var d = img.data, bmp = new Uint8Array(w * h);
+  var minX = w, minY = h, maxX = -1, maxY = -1;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] > 40) {
+        bmp[y * w + x] = 1;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { data: bmp, w: w, h: h, minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+}
+
+function bitmapToGrid(bmp, x0, y0, x1, y1) {
+  var bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  var scale = Math.min(OCR_GRID / bw, OCR_GRID / bh);
+  var gw = Math.max(1, Math.round(bw * scale)), gh = Math.max(1, Math.round(bh * scale));
+  var grid = new Uint8Array(OCR_GRID * OCR_GRID);
+  var offX = Math.round((OCR_GRID - gw) / 2), offY = Math.round((OCR_GRID - gh) / 2);
+  for (var gy = 0; gy < gh; gy++) {
+    for (var gx = 0; gx < gw; gx++) {
+      var sx = x0 + Math.min(bw - 1, Math.floor(gx / scale));
+      var sy = y0 + Math.min(bh - 1, Math.floor(gy / scale));
+      if (bmp.data[sy * bmp.w + sx]) grid[(offY + gy) * OCR_GRID + offX + gx] = 1;
+    }
+  }
+  return grid;
+}
+
+function glyphGrid(s) {
+  if (glyphCache[s]) return glyphCache[s];
+  var c = document.createElement("canvas");
+  c.width = c.height = OCR_GRID * 2;
+  var ctx = c.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold " + Math.round(OCR_GRID * 1.5) + "px serif";
+  ctx.fillText(s, c.width / 2, c.height / 2);
+  var bmp = canvasBitmap(c);
+  var g = bmp ? bitmapToGrid(bmp, bmp.minX, bmp.minY, bmp.maxX, bmp.maxY)
+              : new Uint8Array(OCR_GRID * OCR_GRID);
+  glyphCache[s] = g;
+  return g;
+}
+
+function segmentColumns(bmp, targetCount) {
+  var bw = bmp.maxX - bmp.minX + 1;
+  var scale = Math.min(1, 240 / bw);
+  var w2 = Math.max(1, Math.round(bw * scale));
+  var colInk = new Array(w2).fill(0);
+  for (var x = bmp.minX; x <= bmp.maxX; x++) {
+    var c2 = Math.min(w2 - 1, Math.round((x - bmp.minX) * scale));
+    for (var y = bmp.minY; y <= bmp.maxY; y++) if (bmp.data[y * bmp.w + x]) colInk[c2]++;
+  }
+  var spans = [], start = -1, lastInk = -1;
+  for (var i = 0; i < w2; i++) {
+    if (colInk[i] > 0) {
+      if (start < 0) start = i;
+      lastInk = i;
+    } else if (start >= 0 && i - lastInk >= 2) {
+      spans.push({ a: start, b: lastInk });
+      start = -1;
+    }
+  }
+  if (start >= 0) spans.push({ a: start, b: lastInk });
+  /* merge adjacent spans across the smallest gaps until the count matches the
+     target word length (intra-character gaps are smaller than inter-character) */
+  while (spans.length > targetCount) {
+    var bestK = 0, bestGap = Infinity;
+    for (var k = 0; k < spans.length - 1; k++) {
+      var g = spans[k + 1].a - spans[k].b - 1;
+      if (g < bestGap) { bestGap = g; bestK = k; }
+    }
+    spans.splice(bestK, 2, { a: spans[bestK].a, b: spans[bestK + 1].b });
+  }
+  if (spans.length !== targetCount) return null;
+  return spans.map(function (s) {
+    var x0 = bmp.minX + Math.round(s.a / scale);
+    var x1 = bmp.minX + Math.round(s.b / scale);
+    return bitmapToGrid(bmp, x0, bmp.minY, x1, bmp.maxY);
+  });
+}
+
+function matchScore(g1, g2) {
+  var best = 0;
+  for (var dy = -2; dy <= 2; dy++) {
+    for (var dx = -2; dx <= 2; dx++) {
+      var inter = 0, union = 0;
+      for (var y = 0; y < OCR_GRID; y++) {
+        for (var x = 0; x < OCR_GRID; x++) {
+          var a = g1[y * OCR_GRID + x];
+          var yy = y + dy, xx = x + dx;
+          var b = (yy >= 0 && yy < OCR_GRID && xx >= 0 && xx < OCR_GRID) ? g2[yy * OCR_GRID + xx] : 0;
+          if (a && b) inter++;
+          if (a || b) union++;
+        }
+      }
+      var s = union ? inter / union : 0;
+      if (s > best) best = s;
+    }
+  }
+  return best;
+}
+
+function bestMatch(grid, candidates) {
+  var best = { s: candidates[0] || "", score: -1 };
+  for (var i = 0; i < candidates.length; i++) {
+    var sc = matchScore(grid, glyphGrid(candidates[i]));
+    if (sc > best.score) best = { s: candidates[i], score: sc };
+  }
+  return best;
+}
+
+function deckChars() {
+  var seen = {}, out = [];
+  writeRows().forEach(function (r) {
+    Array.from((r.hanzi || "").trim()).forEach(function (ch) {
+      if (!seen[ch]) { seen[ch] = 1; out.push(ch); }
+    });
+  });
+  return out;
+}
+
+function showWriteResult(msg, cls) {
+  var el = document.getElementById("write-result");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "write-result " + (cls || "");
+  el.hidden = false;
+}
+
+function clearWriteResult() {
+  var el = document.getElementById("write-result");
+  if (el) { el.hidden = true; el.textContent = ""; }
 }
 
 /* ---------- App menu ---------- */
