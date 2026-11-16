@@ -426,8 +426,8 @@
         "drawWriteGuide must render the prompt hanzi with fillText");
       assert(/function renderWrite\(\)[\s\S]*?drawWriteGuide\(\)/.test(html),
         "renderWrite must redraw the guide for every card");
-      assert(/function initCanvas\(\)[\s\S]*?drawWriteGuide\(\)/.test(html),
-        "initCanvas must redraw the guide after (re)sizing the canvas");
+      assert(/function drawWriteGuide\(\)[\s\S]*?sizeWriteGuide\(\)/.test(html),
+        "drawWriteGuide must (re)size the guide canvas to the drawing canvas before drawing");
       report("write guide overlay: separate pointer-transparent canvas, persisted toggle, redrawn per card and on canvas init", true);
     });
   }
