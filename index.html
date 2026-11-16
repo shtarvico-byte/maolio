@@ -302,6 +302,7 @@
   .write-wrap { display: flex; flex-direction: column; align-items: center; gap: 20px; padding-top: 24px; }
   .write-prompt { font-size: 2.5rem; text-align: center; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
   .write-pinyin { font-size: 1.4rem; color: var(--theme-dark); }
+  #write-canvas-wrap { position: relative; width: 100%; max-width: 640px; }
   #write-canvas {
     background: #fff;
     border-radius: 16px;
@@ -313,6 +314,7 @@
     touch-action: none;
     cursor: crosshair;
   }
+  #write-guide { position: absolute; top: 3px; left: 3px; right: 3px; bottom: 3px; pointer-events: none; }
   .write-controls { display: flex; flex-direction: column; gap: 12px; align-items: center; }
   .write-nav { display: flex; gap: 12px; align-items: center; }
   #update-banner {
@@ -487,9 +489,13 @@
         <span id="write-hanzi"></span>
         <span id="write-pinyin" class="write-pinyin"></span>
       </div>
-      <canvas id="write-canvas"></canvas>
+      <div id="write-canvas-wrap">
+        <canvas id="write-canvas"></canvas>
+        <canvas id="write-guide"></canvas>
+      </div>
       <div class="write-controls" id="write-controls">
         <button class="btn secondary" onclick="clearCanvas()">Clear</button>
+        <button class="btn secondary" id="write-guide-btn" onclick="toggleWriteGuide()">Guide: On</button>
         <button class="btn" onclick="checkWriting()">Check</button>
         <div class="write-nav">
           <button class="btn secondary" onclick="navWrite(-1)">← Prev</button>
@@ -1482,6 +1488,7 @@ function initCanvas() {
   canvas.addEventListener("pointerup", stopDrawing);
   canvas.addEventListener("pointerleave", stopDrawing);
   canvas.addEventListener("touchmove", function(e) { e.preventDefault(); });
+  drawWriteGuide();
 }
 
 function startDrawing(e) {
@@ -1526,6 +1533,61 @@ function clearCanvas() {
   canvasCtx.beginPath();
 }
 
+var WRITE_GUIDE_KEY = "zht-vocab-write-guide";
+var writeGuideOn = true;
+
+function sizeWriteGuide() {
+  var canvas = document.getElementById("write-canvas");
+  var guide = document.getElementById("write-guide");
+  if (!canvas || !guide) return;
+  var ratio = window.devicePixelRatio || 1;
+  var w = canvas.clientWidth;
+  var h = canvas.clientHeight;
+  if (!w || !h) return;
+  guide.width = w * ratio;
+  guide.height = h * ratio;
+}
+
+function drawWriteGuide() {
+  var guide = document.getElementById("write-guide");
+  if (!guide) return;
+  sizeWriteGuide();
+  var ctx = guide.getContext("2d");
+  ctx.clearRect(0, 0, guide.width, guide.height);
+  if (!writeGuideOn) return;
+  var hanziEl = document.getElementById("write-hanzi");
+  var hanzi = hanziEl ? (hanziEl.textContent || "").trim() : "";
+  if (!hanzi) return;
+  var ratio = window.devicePixelRatio || 1;
+  var w = guide.width / ratio;
+  var h = guide.height / ratio;
+  if (!w || !h) return;
+  var size = h * 0.72;
+  ctx.fillStyle = "rgba(43,22,8,0.18)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold " + size + "px serif";
+  var maxW = w * 0.9;
+  var textW = ctx.measureText(hanzi).width;
+  if (textW > maxW && textW > 0) {
+    size = size * maxW / textW;
+    ctx.font = "bold " + size + "px serif";
+  }
+  ctx.fillText(hanzi, w / 2, h / 2);
+}
+
+function updateWriteGuideBtn() {
+  var btn = document.getElementById("write-guide-btn");
+  if (btn) btn.textContent = "Guide: " + (writeGuideOn ? "On" : "Off");
+}
+
+function toggleWriteGuide() {
+  writeGuideOn = !writeGuideOn;
+  try { localStorage.setItem(WRITE_GUIDE_KEY, writeGuideOn ? "1" : "0"); } catch (e) { /* ignore */ }
+  updateWriteGuideBtn();
+  drawWriteGuide();
+}
+
 function renderWrite() {
   var list = writeRows();
   var wrap = document.getElementById("write-wrap");
@@ -1551,6 +1613,7 @@ function renderWrite() {
   counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length;
 
   clearCanvas();
+  drawWriteGuide();
 }
 
 function navWrite(delta) {
@@ -1644,6 +1707,11 @@ function loadTheme() {
   var saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch (e) { saved = null; }
   applyTheme(saved);
+}
+
+function loadWriteGuide() {
+  try { writeGuideOn = localStorage.getItem(WRITE_GUIDE_KEY) !== "0"; } catch (e) { writeGuideOn = true; }
+  updateWriteGuideBtn();
 }
 
 /* ---------- App menu ---------- */
@@ -2809,6 +2877,7 @@ if (typeof GitHubSync !== "undefined") {
 updateSyncMenu();
 if (driveIsConfigured() && (typeof GitHubSync === "undefined" || GitHubSync.activeBackend() !== "github")) startDriveAutoSync();
 loadTheme();
+loadWriteGuide();
 updateVersionDisplay();
 updateModeToggles();
 renderSheetSelect();

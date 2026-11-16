@@ -410,6 +410,28 @@
     });
   }
 
+  function testWriteGuideOverlay() {
+    // The Write tab must offer a toggleable transparent overlay of the target
+    // hanzi on its own canvas layer, so Clear/drawing never touch it.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(/<div id="write-canvas-wrap">[\s\S]*?<canvas id="write-canvas"><\/canvas>[\s\S]*?<canvas id="write-guide"><\/canvas>[\s\S]*?<\/div>/.test(html),
+        "write-canvas and write-guide must sit in one positioning wrapper");
+      assert(/#write-guide\s*\{[^}]*pointer-events:\s*none/.test(html),
+        "#write-guide must be pointer-events:none so it never blocks drawing");
+      assert(html.indexOf('id="write-guide-btn"') !== -1 && html.indexOf("toggleWriteGuide()") !== -1,
+        "a Guide toggle button must call toggleWriteGuide()");
+      assert(html.indexOf("localStorage.setItem(WRITE_GUIDE_KEY") !== -1 && html.indexOf("localStorage.getItem(WRITE_GUIDE_KEY)") !== -1,
+        "the guide on/off choice must persist to localStorage");
+      assert(/function drawWriteGuide\(\)[\s\S]*?fillText\(/.test(html),
+        "drawWriteGuide must render the prompt hanzi with fillText");
+      assert(/function renderWrite\(\)[\s\S]*?drawWriteGuide\(\)/.test(html),
+        "renderWrite must redraw the guide for every card");
+      assert(/function initCanvas\(\)[\s\S]*?drawWriteGuide\(\)/.test(html),
+        "initCanvas must redraw the guide after (re)sizing the canvas");
+      report("write guide overlay: separate pointer-transparent canvas, persisted toggle, redrawn per card and on canvas init", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -431,7 +453,8 @@
       ["delete-guard", testDeleteGuard],
       ["rows-relink-after-apply", testRowsRelinkedAfterApply],
       ["update-reload-wired", testUpdateReloadWired],
-      ["sw-network-first-app-code", testSwNetworkFirstForAppCode]
+      ["sw-network-first-app-code", testSwNetworkFirstForAppCode],
+      ["write-guide-overlay", testWriteGuideOverlay]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
