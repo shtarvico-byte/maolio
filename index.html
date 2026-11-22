@@ -466,8 +466,22 @@
       <button class="tab-btn active" id="learn-sub-cards" onclick="switchLearnSub('cards')">Cards</button>
       <button class="tab-btn" id="learn-sub-write" onclick="switchLearnSub('write')">Write</button>
     </nav>
+    <div class="mode-toggles" id="mode-toggles">
+      <div class="toggle-switch">
+        <label for="toggle-shuffle">Shuffle</label>
+        <input type="checkbox" id="toggle-shuffle" onclick="toggleShuffleMode()">
+      </div>
+      <div class="toggle-switch">
+        <label for="toggle-all-sheets">All sheets</label>
+        <input type="checkbox" id="toggle-all-sheets" onclick="toggleAllSheetsMode()">
+      </div>
+      <div class="toggle-switch">
+        <label for="toggle-short">Short (≤2 words)</label>
+        <input type="checkbox" id="toggle-short" onclick="toggleShortMode()">
+      </div>
+    </div>
     <div class="learn-wrap" id="learn-wrap">
-      <div class="mode-toggles" id="mode-toggles">
+      <div class="mode-toggles" id="card-mode-toggles">
         <div class="toggle-switch">
           <label for="toggle-english">Show English</label>
           <input type="checkbox" id="toggle-english" checked onclick="toggleLearnMode('english')">
@@ -480,18 +494,6 @@
           <label for="toggle-pinyin">Show Pinyin</label>
           <input type="checkbox" id="toggle-pinyin" onclick="toggleLearnMode('pinyin')">
         </div>
-        <div class="toggle-switch">
-          <label for="toggle-shuffle">Shuffle</label>
-          <input type="checkbox" id="toggle-shuffle" onclick="toggleShuffleMode()">
-        </div>
-        <div class="toggle-switch">
-          <label for="toggle-all-sheets">All sheets</label>
-          <input type="checkbox" id="toggle-all-sheets" onclick="toggleLearnAllSheets()">
-        </div>
-        <div class="toggle-switch">
-          <label for="toggle-short">Short (≤2 words)</label>
-          <input type="checkbox" id="toggle-short" onclick="toggleLearnShort()">
-        </div>
       </div>
       <div class="learn-card" id="learn-card"></div>
       <div class="card-counter" id="learn-counter"></div>
@@ -499,20 +501,6 @@
     </div>
     <div class="empty-state" id="learn-empty" hidden>Add some words in the Table tab first.</div>
     <div class="write-wrap" id="write-wrap" hidden>
-      <div class="mode-toggles" id="write-mode-toggles">
-        <div class="toggle-switch">
-          <label for="write-toggle-shuffle">Shuffle</label>
-          <input type="checkbox" id="write-toggle-shuffle" onclick="toggleWriteShuffle()">
-        </div>
-        <div class="toggle-switch">
-          <label for="write-toggle-all-sheets">All sheets</label>
-          <input type="checkbox" id="write-toggle-all-sheets" onclick="toggleWriteAllSheets()">
-        </div>
-        <div class="toggle-switch">
-          <label for="write-toggle-short">Short (≤2 words)</label>
-          <input type="checkbox" id="write-toggle-short" onclick="toggleWriteShort()">
-        </div>
-      </div>
       <div class="write-prompt" id="write-prompt">
         <span id="write-hanzi"></span>
         <span id="write-pinyin" class="write-pinyin"></span>
@@ -570,19 +558,16 @@ var learnRevealed = false;
 var learnShowEnglish = true;
 var learnShowHanzi = false;
 var learnShowPinyin = false;
-var learnShuffle = false;
+var shuffleOn = false;
 var shuffledIndices = [];
 var MODE_PREFS_KEY = "zht-vocab-mode-prefs-v1";
-var learnAllSheets = false;
-var learnShort = false;
+var allSheetsOn = false;
+var shortOn = false;
 var learnSub = "cards";
 
 /* Write mode state */
 var writeIndex = 0;
-var writeShuffle = false;
 var writeShuffledIndices = [];
-var writeAllSheets = false;
-var writeShort = false;
 
 function loadModePrefs() {
   try {
@@ -590,17 +575,14 @@ function loadModePrefs() {
     if (!raw) return;
     var p = JSON.parse(raw);
     if (!p) return;
-    if (p.learn) { learnAllSheets = !!p.learn.allSheets; learnShort = !!p.learn.short; }
-    if (p.write) { writeAllSheets = !!p.write.allSheets; writeShort = !!p.write.short; }
+    allSheetsOn = !!(p.allSheets || (p.learn && p.learn.allSheets) || (p.write && p.write.allSheets));
+    shortOn = !!(p.short || (p.learn && p.learn.short) || (p.write && p.write.short));
   } catch (e) { /* ignore */ }
 }
 
 function persistModePrefs() {
   try {
-    localStorage.setItem(MODE_PREFS_KEY, JSON.stringify({
-      learn: { allSheets: learnAllSheets, short: learnShort },
-      write: { allSheets: writeAllSheets, short: writeShort }
-    }));
+    localStorage.setItem(MODE_PREFS_KEY, JSON.stringify({ allSheets: allSheetsOn, short: shortOn }));
   } catch (e) { /* ignore */ }
 }
 var isDrawing = false;
@@ -825,7 +807,7 @@ function restoreBackup() {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
-  learnShuffle = false;
+  shuffleOn = false;
   shuffledIndices = [];
   updateModeToggles();
   saveSheets();
@@ -869,7 +851,7 @@ function switchSheet(id) {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
-  learnShuffle = false;
+  shuffleOn = false;
   shuffledIndices = [];
   updateModeToggles();
   saveSheets();
@@ -1349,10 +1331,10 @@ function isShortRow(r) {
 }
 
 function learnRows() {
-  var base = learnAllSheets ? allSheetsRows() : rows;
+  var base = allSheetsOn ? allSheetsRows() : rows;
   return base.filter(function (r) {
     if ((r.en || "").trim() === "") return false;
-    if (learnShort && !isShortRow(r)) return false;
+    if (shortOn && !isShortRow(r)) return false;
     return true;
   });
 }
@@ -1370,16 +1352,11 @@ function toggleLearnMode(field) {
 }
 
 function toggleShuffleMode() {
-  learnShuffle = !learnShuffle;
+  shuffleOn = !shuffleOn;
   var shuffleToggle = document.getElementById('toggle-shuffle');
-  if (shuffleToggle) shuffleToggle.checked = learnShuffle;
-  if (learnShuffle) {
-    shuffleCards();
-  } else {
-    shuffledIndices = [];
-  }
-  learnIndex = 0;
-  learnRevealed = false;
+  if (shuffleToggle) shuffleToggle.checked = shuffleOn;
+  resetLearnPool();
+  resetWritePool();
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
@@ -1390,21 +1367,23 @@ function toggleShuffleMode() {
 function resetLearnPool() {
   learnIndex = 0;
   learnRevealed = false;
-  if (learnShuffle) shuffleCards(); else shuffledIndices = [];
+  if (shuffleOn) shuffleCards(); else shuffledIndices = [];
 }
 
-function toggleLearnAllSheets() {
-  learnAllSheets = !learnAllSheets;
+function toggleAllSheetsMode() {
+  allSheetsOn = !allSheetsOn;
   persistModePrefs();
   resetLearnPool();
+  resetWritePool();
   updateModeToggles();
   renderLearnSub();
 }
 
-function toggleLearnShort() {
-  learnShort = !learnShort;
+function toggleShortMode() {
+  shortOn = !shortOn;
   persistModePrefs();
   resetLearnPool();
+  resetWritePool();
   updateModeToggles();
   renderLearnSub();
 }
@@ -1430,7 +1409,7 @@ function shuffleWriteCards() {
 }
 
 function getCurrentCardIndex() {
-  if (learnShuffle && shuffledIndices.length > 0) {
+  if (shuffleOn && shuffledIndices.length > 0) {
     return shuffledIndices[learnIndex] || 0;
   }
   return learnIndex;
@@ -1446,24 +1425,15 @@ function updateModeToggles() {
   if (engToggle) engToggle.checked = learnShowEnglish;
   if (hanziToggle) hanziToggle.checked = learnShowHanzi;
   if (pinyinToggle) pinyinToggle.checked = learnShowPinyin;
-  if (shuffleToggle) shuffleToggle.checked = learnShuffle;
-  if (allSheetsToggle) allSheetsToggle.checked = learnAllSheets;
-  if (shortToggle) shortToggle.checked = learnShort;
+  if (shuffleToggle) shuffleToggle.checked = shuffleOn;
+  if (allSheetsToggle) allSheetsToggle.checked = allSheetsOn;
+  if (shortToggle) shortToggle.checked = shortOn;
 }
 
-function updateWriteToggles() {
-  var shuffleToggle = document.getElementById('write-toggle-shuffle');
-  var allSheetsToggle = document.getElementById('write-toggle-all-sheets');
-  var shortToggle = document.getElementById('write-toggle-short');
-  if (shuffleToggle) shuffleToggle.checked = writeShuffle;
-  if (allSheetsToggle) allSheetsToggle.checked = writeAllSheets;
-  if (shortToggle) shortToggle.checked = writeShort;
-}
-
-function learnFilterSuffix() {
+function poolSuffix() {
   var s = "";
-  if (learnAllSheets) s += " · all sheets";
-  if (learnShort) s += " · ≤2 words";
+  if (allSheetsOn) s += " · all sheets";
+  if (shortOn) s += " · ≤2 words";
   return s;
 }
 
@@ -1478,7 +1448,7 @@ function renderLearn() {
   if (!list.length) {
     wrap.hidden = true;
     empty.hidden = false;
-    var base = learnAllSheets ? allSheetsRows() : rows;
+    var base = allSheetsOn ? allSheetsRows() : rows;
     var hasAny = base.some(function (r) { return (r.en || "").trim() !== ""; });
     empty.textContent = hasAny ? "No cards match the current toggles (All sheets / Short)." : "Add some words in the Table tab first.";
     return;
@@ -1534,7 +1504,7 @@ function renderLearn() {
     card.appendChild(note);
   }
 
-  counter.textContent = "Card " + (learnIndex + 1) + " of " + list.length + learnFilterSuffix();
+  counter.textContent = "Card " + (learnIndex + 1) + " of " + list.length + poolSuffix();
 
   controls.innerHTML = "";
   var prev = document.createElement("button");
@@ -1586,16 +1556,16 @@ function navLearn(delta) {
 /* ---------- Write mode ---------- */
 
 function writeRows() {
-  var base = writeAllSheets ? allSheetsRows() : rows;
+  var base = allSheetsOn ? allSheetsRows() : rows;
   return base.filter(function (r) {
     if ((r.hanzi || "").trim() === "") return false;
-    if (writeShort && !isShortRow(r)) return false;
+    if (shortOn && !isShortRow(r)) return false;
     return true;
   });
 }
 
 function getWriteCardIndex() {
-  if (writeShuffle && writeShuffledIndices.length > 0) {
+  if (shuffleOn && writeShuffledIndices.length > 0) {
     return writeShuffledIndices[writeIndex] || 0;
   }
   return writeIndex;
@@ -1603,30 +1573,7 @@ function getWriteCardIndex() {
 
 function resetWritePool() {
   writeIndex = 0;
-  if (writeShuffle) shuffleWriteCards(); else writeShuffledIndices = [];
-}
-
-function toggleWriteShuffle() {
-  writeShuffle = !writeShuffle;
-  resetWritePool();
-  updateWriteToggles();
-  renderWrite();
-}
-
-function toggleWriteAllSheets() {
-  writeAllSheets = !writeAllSheets;
-  persistModePrefs();
-  resetWritePool();
-  updateWriteToggles();
-  renderWrite();
-}
-
-function toggleWriteShort() {
-  writeShort = !writeShort;
-  persistModePrefs();
-  resetWritePool();
-  updateWriteToggles();
-  renderWrite();
+  if (shuffleOn) shuffleWriteCards(); else writeShuffledIndices = [];
 }
 
 function initCanvas() {
@@ -1747,13 +1694,6 @@ function toggleWriteGuide() {
   drawWriteGuide();
 }
 
-function writeFilterSuffix() {
-  var s = "";
-  if (writeAllSheets) s += " · all sheets";
-  if (writeShort) s += " · ≤2 words";
-  return s;
-}
-
 function renderWrite() {
   var list = writeRows();
   var wrap = document.getElementById("write-wrap");
@@ -1765,7 +1705,7 @@ function renderWrite() {
   if (!list.length) {
     wrap.hidden = true;
     empty.hidden = false;
-    var base = writeAllSheets ? allSheetsRows() : rows;
+    var base = allSheetsOn ? allSheetsRows() : rows;
     var hasAny = base.some(function (r) { return (r.hanzi || "").trim() !== ""; });
     empty.textContent = hasAny ? "No cards match the current toggles (All sheets / Short)." : "Add some words in the Table tab first.";
     return;
@@ -1779,7 +1719,7 @@ function renderWrite() {
 
   hanziEl.textContent = row.hanzi || "";
   pinyinEl.textContent = row.pinyin || "";
-  counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length + writeFilterSuffix();
+  counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length + poolSuffix();
 
   clearCanvas();
   drawWriteGuide();
@@ -1844,13 +1784,13 @@ function switchTab(tab) {
     learnShowHanzi = false;
     learnShowPinyin = false;
     learnIndex = 0;
-    if (learnShuffle) {
+    if (shuffleOn) {
       shuffleCards();
     } else {
       shuffledIndices = [];
     }
     writeIndex = 0;
-    if (writeShuffle) shuffleWriteCards(); else writeShuffledIndices = [];
+    if (shuffleOn) shuffleWriteCards(); else writeShuffledIndices = [];
     renderLearnSub();
   }
   if (isConflicts) {
@@ -1875,7 +1815,6 @@ function renderLearnSub() {
   if (!isCards) document.getElementById("learn-empty").hidden = true;
   if (isCards) document.getElementById("write-empty").hidden = true;
   updateModeToggles();
-  updateWriteToggles();
   if (isCards) {
     renderLearn();
   } else {
@@ -2311,7 +2250,7 @@ function applyBackupPayload(text) {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
-  learnShuffle = false;
+  shuffleOn = false;
   shuffledIndices = [];
   updateModeToggles();
   saveSheets();
@@ -3249,7 +3188,6 @@ loadTheme();
 loadWriteGuide();
 updateVersionDisplay();
 updateModeToggles();
-updateWriteToggles();
 renderSheetSelect();
 renderTable();
 watchForUpdates();
