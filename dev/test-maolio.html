@@ -453,29 +453,32 @@
   }
 
   function testModeToggles() {
-    // Learn + Write must each offer "All sheets" (pool cards from every sheet)
-    // and "Short (≤2 words)" (hanzi cell = at most 2 whitespace-separated words);
-    // both persist to localStorage. Write also gets a Shuffle toggle over the pool.
+    // One shared toggle row under the Learn tab serves both the Cards and the
+    // Write sub-mode: Shuffle, All sheets (pool cards from every sheet), and
+    // Short (≤2 words = hanzi cell has at most 2 whitespace-separated words).
+    // All sheets + Short persist to localStorage.
     return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
-      assert(/id="mode-toggles"[\s\S]*?id="toggle-all-sheets"[\s\S]*?toggleLearnAllSheets\(\)[\s\S]*?id="toggle-short"[\s\S]*?toggleLearnShort\(\)/.test(html),
-        "Learn view must have All sheets + Short toggles wired to their handlers");
-      assert(/id="write-mode-toggles"[\s\S]*?id="write-toggle-shuffle"[\s\S]*?toggleWriteShuffle\(\)[\s\S]*?id="write-toggle-all-sheets"[\s\S]*?toggleWriteAllSheets\(\)[\s\S]*?id="write-toggle-short"[\s\S]*?toggleWriteShort\(\)/.test(html),
-        "Write view must have Shuffle + All sheets + Short toggles wired to their handlers");
+      assert(/id="view-learn"[\s\S]*?id="mode-toggles"[\s\S]*?id="toggle-shuffle"[\s\S]*?toggleShuffleMode\(\)[\s\S]*?id="toggle-all-sheets"[\s\S]*?toggleAllSheetsMode\(\)[\s\S]*?id="toggle-short"[\s\S]*?toggleShortMode\(\)[\s\S]*?id="learn-wrap"/.test(html),
+        "one shared toggle row (Shuffle/All sheets/Short) must sit in the Learn view above the sub-mode content");
+      assert(html.indexOf('id="write-mode-toggles"') === -1 && html.indexOf('id="write-toggle-') === -1,
+        "the Write sub-mode must not have its own toggle row anymore");
+      assert(/id="card-mode-toggles"[\s\S]*?id="toggle-english"[\s\S]*?id="toggle-hanzi"[\s\S]*?id="toggle-pinyin"/.test(html),
+        "the Cards sub-mode keeps its own Show English/Hanzi/Pinyin row");
       assert(html.indexOf("function allSheetsRows()") !== -1, "allSheetsRows() pooling helper missing");
-      assert(/function learnRows\(\) \{\s*var base = learnAllSheets \? allSheetsRows\(\) : rows;/.test(html),
+      assert(/function learnRows\(\) \{\s*var base = allSheetsOn \? allSheetsRows\(\) : rows;/.test(html),
         "learnRows must pool all sheets when All sheets is on");
-      assert(/function writeRows\(\) \{\s*var base = writeAllSheets \? allSheetsRows\(\) : rows;/.test(html),
-        "writeRows must pool all sheets when All sheets is on");
+      assert(/function writeRows\(\) \{\s*var base = allSheetsOn \? allSheetsRows\(\) : rows;/.test(html),
+        "writeRows must pool all sheets when All sheets is on (shared setting)");
       assert(html.indexOf("function isShortRow(") !== -1 && html.indexOf("split(/\\s+/)") !== -1 && html.indexOf("<= 2") !== -1,
         "isShortRow must count whitespace-separated hanzi words and keep at most 2");
-      assert(/learnShort && !isShortRow\(r\)/.test(html) && /writeShort && !isShortRow\(r\)/.test(html),
-        "both modes must apply the Short filter to their card pool");
+      assert((html.match(/shortOn && !isShortRow\(r\)/g) || []).length === 2,
+        "both card pools must apply the shared Short filter");
       assert(html.indexOf("localStorage.getItem(MODE_PREFS_KEY)") !== -1 && html.indexOf("localStorage.setItem(MODE_PREFS_KEY") !== -1,
         "the All sheets / Short toggles must persist to localStorage");
       assert(/loadModePrefs\(\);/.test(html), "loadModePrefs must run at startup");
       assert(html.indexOf("function shuffleWriteCards(") !== -1 && /if \(isLearn\) \{[\s\S]*?shuffleWriteCards\(\)/.test(html),
         "the Write sub-mode must shuffle its (possibly all-sheets) pool when Shuffle is on");
-      report("learn/write modes: All sheets pools every sheet, Short keeps ≤2-word hanzi, toggles persist in localStorage, write gets Shuffle", true);
+      report("merged learn/write toggles: one shared Shuffle/All sheets/Short row under Learn, ≤2-word short filter on both pools, persisted in localStorage", true);
     });
   }
 
