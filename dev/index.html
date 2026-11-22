@@ -400,7 +400,7 @@
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
   <div class="header-left">
-    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.12</span></h1>
+    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.13</span></h1>
   </div>
   <div class="header-center">
     <select id="sheet-select-header" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
@@ -480,6 +480,14 @@
           <label for="toggle-shuffle">Shuffle</label>
           <input type="checkbox" id="toggle-shuffle" onclick="toggleShuffleMode()">
         </div>
+        <div class="toggle-switch">
+          <label for="toggle-all-sheets">All sheets</label>
+          <input type="checkbox" id="toggle-all-sheets" onclick="toggleLearnAllSheets()">
+        </div>
+        <div class="toggle-switch">
+          <label for="toggle-short">Short (≤2 words)</label>
+          <input type="checkbox" id="toggle-short" onclick="toggleLearnShort()">
+        </div>
       </div>
       <div class="learn-card" id="learn-card"></div>
       <div class="card-counter" id="learn-counter"></div>
@@ -489,6 +497,20 @@
   </section>
   <section id="view-write" hidden>
     <div class="write-wrap" id="write-wrap">
+      <div class="mode-toggles" id="write-mode-toggles">
+        <div class="toggle-switch">
+          <label for="write-toggle-shuffle">Shuffle</label>
+          <input type="checkbox" id="write-toggle-shuffle" onclick="toggleWriteShuffle()">
+        </div>
+        <div class="toggle-switch">
+          <label for="write-toggle-all-sheets">All sheets</label>
+          <input type="checkbox" id="write-toggle-all-sheets" onclick="toggleWriteAllSheets()">
+        </div>
+        <div class="toggle-switch">
+          <label for="write-toggle-short">Short (≤2 words)</label>
+          <input type="checkbox" id="write-toggle-short" onclick="toggleWriteShort()">
+        </div>
+      </div>
       <div class="write-prompt" id="write-prompt">
         <span id="write-hanzi"></span>
         <span id="write-pinyin" class="write-pinyin"></span>
@@ -517,7 +539,7 @@
 <script>
 "use strict";
 
-var APP_VERSION = "6.12";
+var APP_VERSION = "6.13";
 var APP_BRANCH = (function() {
   var path = window.location.pathname;
   if (path.includes("/dev/") || path.includes("/dev")) {
@@ -548,11 +570,36 @@ var learnShowHanzi = false;
 var learnShowPinyin = false;
 var learnShuffle = false;
 var shuffledIndices = [];
+var MODE_PREFS_KEY = "zht-vocab-mode-prefs-v1";
+var learnAllSheets = false;
+var learnShort = false;
 
 /* Write mode state */
 var writeIndex = 0;
 var writeShuffle = false;
 var writeShuffledIndices = [];
+var writeAllSheets = false;
+var writeShort = false;
+
+function loadModePrefs() {
+  try {
+    var raw = localStorage.getItem(MODE_PREFS_KEY);
+    if (!raw) return;
+    var p = JSON.parse(raw);
+    if (!p) return;
+    if (p.learn) { learnAllSheets = !!p.learn.allSheets; learnShort = !!p.learn.short; }
+    if (p.write) { writeAllSheets = !!p.write.allSheets; writeShort = !!p.write.short; }
+  } catch (e) { /* ignore */ }
+}
+
+function persistModePrefs() {
+  try {
+    localStorage.setItem(MODE_PREFS_KEY, JSON.stringify({
+      learn: { allSheets: learnAllSheets, short: learnShort },
+      write: { allSheets: writeAllSheets, short: writeShort }
+    }));
+  } catch (e) { /* ignore */ }
+}
 var isDrawing = false;
 var canvasCtx = null;
 
@@ -1283,8 +1330,28 @@ if ("speechSynthesis" in window) {
 
 /* ---------- Learn mode ---------- */
 
+function allSheetsRows() {
+  var out = [];
+  for (var i = 0; i < sheets.length; i++) {
+    var rs = sheets[i] && sheets[i].rows;
+    if (Array.isArray(rs)) out = out.concat(rs);
+  }
+  return out;
+}
+
+function isShortRow(r) {
+  var h = ((r && r.hanzi) || "").trim();
+  if (!h) return true;
+  return h.split(/\s+/).length <= 2;
+}
+
 function learnRows() {
-  return rows.filter(function (r) { return (r.en || "").trim() !== ""; });
+  var base = learnAllSheets ? allSheetsRows() : rows;
+  return base.filter(function (r) {
+    if ((r.en || "").trim() === "") return false;
+    if (learnShort && !isShortRow(r)) return false;
+    return true;
+  });
 }
 
 function toggleLearnMode(field) {
@@ -1317,18 +1384,46 @@ function toggleShuffleMode() {
   renderLearn();
 }
 
-function shuffleCards() {
-  var list = learnRows();
-  shuffledIndices = [];
-  for (var i = 0; i < list.length; i++) {
-    shuffledIndices.push(i);
-  }
-  for (var i = shuffledIndices.length - 1; i > 0; i--) {
+function resetLearnPool() {
+  learnIndex = 0;
+  learnRevealed = false;
+  if (learnShuffle) shuffleCards(); else shuffledIndices = [];
+}
+
+function toggleLearnAllSheets() {
+  learnAllSheets = !learnAllSheets;
+  persistModePrefs();
+  resetLearnPool();
+  updateModeToggles();
+  renderLearn();
+}
+
+function toggleLearnShort() {
+  learnShort = !learnShort;
+  persistModePrefs();
+  resetLearnPool();
+  updateModeToggles();
+  renderLearn();
+}
+
+function shuffledCopy(n) {
+  var arr = [];
+  for (var i = 0; i < n; i++) arr.push(i);
+  for (var i = arr.length - 1; i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
-    var temp = shuffledIndices[i];
-    shuffledIndices[i] = shuffledIndices[j];
-    shuffledIndices[j] = temp;
+    var temp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = temp;
   }
+  return arr;
+}
+
+function shuffleCards() {
+  shuffledIndices = shuffledCopy(learnRows().length);
+}
+
+function shuffleWriteCards() {
+  writeShuffledIndices = shuffledCopy(writeRows().length);
 }
 
 function getCurrentCardIndex() {
@@ -1343,10 +1438,30 @@ function updateModeToggles() {
   var hanziToggle = document.getElementById('toggle-hanzi');
   var pinyinToggle = document.getElementById('toggle-pinyin');
   var shuffleToggle = document.getElementById('toggle-shuffle');
+  var allSheetsToggle = document.getElementById('toggle-all-sheets');
+  var shortToggle = document.getElementById('toggle-short');
   if (engToggle) engToggle.checked = learnShowEnglish;
   if (hanziToggle) hanziToggle.checked = learnShowHanzi;
   if (pinyinToggle) pinyinToggle.checked = learnShowPinyin;
   if (shuffleToggle) shuffleToggle.checked = learnShuffle;
+  if (allSheetsToggle) allSheetsToggle.checked = learnAllSheets;
+  if (shortToggle) shortToggle.checked = learnShort;
+}
+
+function updateWriteToggles() {
+  var shuffleToggle = document.getElementById('write-toggle-shuffle');
+  var allSheetsToggle = document.getElementById('write-toggle-all-sheets');
+  var shortToggle = document.getElementById('write-toggle-short');
+  if (shuffleToggle) shuffleToggle.checked = writeShuffle;
+  if (allSheetsToggle) allSheetsToggle.checked = writeAllSheets;
+  if (shortToggle) shortToggle.checked = writeShort;
+}
+
+function learnFilterSuffix() {
+  var s = "";
+  if (learnAllSheets) s += " · all sheets";
+  if (learnShort) s += " · ≤2 words";
+  return s;
 }
 
 function renderLearn() {
@@ -1360,6 +1475,9 @@ function renderLearn() {
   if (!list.length) {
     wrap.hidden = true;
     empty.hidden = false;
+    var base = learnAllSheets ? allSheetsRows() : rows;
+    var hasAny = base.some(function (r) { return (r.en || "").trim() !== ""; });
+    empty.textContent = hasAny ? "No cards match the current toggles (All sheets / Short)." : "Add some words in the Table tab first.";
     return;
   }
   wrap.hidden = false;
@@ -1413,7 +1531,7 @@ function renderLearn() {
     card.appendChild(note);
   }
 
-  counter.textContent = "Card " + (learnIndex + 1) + " of " + list.length;
+  counter.textContent = "Card " + (learnIndex + 1) + " of " + list.length + learnFilterSuffix();
 
   controls.innerHTML = "";
   var prev = document.createElement("button");
@@ -1465,7 +1583,12 @@ function navLearn(delta) {
 /* ---------- Write mode ---------- */
 
 function writeRows() {
-  return rows.filter(function (r) { return (r.hanzi || "").trim() !== ""; });
+  var base = writeAllSheets ? allSheetsRows() : rows;
+  return base.filter(function (r) {
+    if ((r.hanzi || "").trim() === "") return false;
+    if (writeShort && !isShortRow(r)) return false;
+    return true;
+  });
 }
 
 function getWriteCardIndex() {
@@ -1473,6 +1596,34 @@ function getWriteCardIndex() {
     return writeShuffledIndices[writeIndex] || 0;
   }
   return writeIndex;
+}
+
+function resetWritePool() {
+  writeIndex = 0;
+  if (writeShuffle) shuffleWriteCards(); else writeShuffledIndices = [];
+}
+
+function toggleWriteShuffle() {
+  writeShuffle = !writeShuffle;
+  resetWritePool();
+  updateWriteToggles();
+  renderWrite();
+}
+
+function toggleWriteAllSheets() {
+  writeAllSheets = !writeAllSheets;
+  persistModePrefs();
+  resetWritePool();
+  updateWriteToggles();
+  renderWrite();
+}
+
+function toggleWriteShort() {
+  writeShort = !writeShort;
+  persistModePrefs();
+  resetWritePool();
+  updateWriteToggles();
+  renderWrite();
 }
 
 function initCanvas() {
@@ -1593,6 +1744,13 @@ function toggleWriteGuide() {
   drawWriteGuide();
 }
 
+function writeFilterSuffix() {
+  var s = "";
+  if (writeAllSheets) s += " · all sheets";
+  if (writeShort) s += " · ≤2 words";
+  return s;
+}
+
 function renderWrite() {
   var list = writeRows();
   var wrap = document.getElementById("write-wrap");
@@ -1604,6 +1762,9 @@ function renderWrite() {
   if (!list.length) {
     wrap.hidden = true;
     empty.hidden = false;
+    var base = writeAllSheets ? allSheetsRows() : rows;
+    var hasAny = base.some(function (r) { return (r.hanzi || "").trim() !== ""; });
+    empty.textContent = hasAny ? "No cards match the current toggles (All sheets / Short)." : "Add some words in the Table tab first.";
     return;
   }
   wrap.hidden = false;
@@ -1615,7 +1776,7 @@ function renderWrite() {
 
   hanziEl.textContent = row.hanzi || "";
   pinyinEl.textContent = row.pinyin || "";
-  counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length;
+  counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length + writeFilterSuffix();
 
   clearCanvas();
   drawWriteGuide();
@@ -1693,7 +1854,8 @@ function switchTab(tab) {
   }
   if (isWrite) {
     writeIndex = 0;
-    writeShuffledIndices = [];
+    if (writeShuffle) shuffleWriteCards(); else writeShuffledIndices = [];
+    updateWriteToggles();
     renderWrite();
     initCanvas();
   }
@@ -3062,10 +3224,12 @@ if (typeof GitHubSync !== "undefined") {
 }
 updateSyncMenu();
 if (driveIsConfigured() && (typeof GitHubSync === "undefined" || GitHubSync.activeBackend() !== "github")) startDriveAutoSync();
+loadModePrefs();
 loadTheme();
 loadWriteGuide();
 updateVersionDisplay();
 updateModeToggles();
+updateWriteToggles();
 renderSheetSelect();
 renderTable();
 watchForUpdates();
