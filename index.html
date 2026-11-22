@@ -128,6 +128,7 @@
   }
 
   .tabs { display: flex; gap: 8px; }
+  .learn-subtabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
   .tab-btn {
     background: rgba(255,255,255,.2);
     border: none;
@@ -410,7 +411,6 @@
     <nav class="tabs">
       <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
       <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
-      <button class="tab-btn" id="tab-write" onclick="switchTab('write')">Write</button>
       <button class="tab-btn" id="tab-conflicts" onclick="switchTab('conflicts')" hidden>Conflicts</button>
     </nav>
     <div style="position: relative;">
@@ -462,6 +462,10 @@
   </section>
 
   <section id="view-learn" hidden>
+    <nav class="tabs learn-subtabs">
+      <button class="tab-btn active" id="learn-sub-cards" onclick="switchLearnSub('cards')">Cards</button>
+      <button class="tab-btn" id="learn-sub-write" onclick="switchLearnSub('write')">Write</button>
+    </nav>
     <div class="learn-wrap" id="learn-wrap">
       <div class="mode-toggles" id="mode-toggles">
         <div class="toggle-switch">
@@ -494,9 +498,7 @@
       <div class="learn-controls" id="learn-controls"></div>
     </div>
     <div class="empty-state" id="learn-empty" hidden>Add some words in the Table tab first.</div>
-  </section>
-  <section id="view-write" hidden>
-    <div class="write-wrap" id="write-wrap">
+    <div class="write-wrap" id="write-wrap" hidden>
       <div class="mode-toggles" id="write-mode-toggles">
         <div class="toggle-switch">
           <label for="write-toggle-shuffle">Shuffle</label>
@@ -573,6 +575,7 @@ var shuffledIndices = [];
 var MODE_PREFS_KEY = "zht-vocab-mode-prefs-v1";
 var learnAllSheets = false;
 var learnShort = false;
+var learnSub = "cards";
 
 /* Write mode state */
 var writeIndex = 0;
@@ -828,7 +831,7 @@ function restoreBackup() {
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
   showRecoveredBanner("Backup restored. Your previous sheets were kept as a backup — use Restore backup again to get them back.");
 }
 
@@ -872,7 +875,7 @@ function switchSheet(id) {
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
 }
 
 function newSheet() {
@@ -911,7 +914,7 @@ function deleteSheet() {
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
 }
 
 function renderSheetSelect() {
@@ -1363,7 +1366,7 @@ function toggleLearnMode(field) {
     learnShowPinyin = !learnShowPinyin;
   }
   updateModeToggles();
-  renderLearn();
+  renderLearnSub();
 }
 
 function toggleShuffleMode() {
@@ -1381,7 +1384,7 @@ function toggleShuffleMode() {
   learnShowHanzi = false;
   learnShowPinyin = false;
   updateModeToggles();
-  renderLearn();
+  renderLearnSub();
 }
 
 function resetLearnPool() {
@@ -1395,7 +1398,7 @@ function toggleLearnAllSheets() {
   persistModePrefs();
   resetLearnPool();
   updateModeToggles();
-  renderLearn();
+  renderLearnSub();
 }
 
 function toggleLearnShort() {
@@ -1403,7 +1406,7 @@ function toggleLearnShort() {
   persistModePrefs();
   resetLearnPool();
   updateModeToggles();
-  renderLearn();
+  renderLearnSub();
 }
 
 function shuffledCopy(n) {
@@ -1549,7 +1552,7 @@ function renderLearn() {
     learnShowHanzi = true;
     learnShowPinyin = true;
     updateModeToggles();
-    renderLearn();
+    renderLearnSub();
   });
 
   var next = document.createElement("button");
@@ -1577,7 +1580,7 @@ function navLearn(delta) {
   if (learnIndex < 0) learnIndex = len - 1;
   if (learnIndex >= len) learnIndex = 0;
   learnRevealed = false;
-  renderLearn();
+  renderLearnSub();
 }
 
 /* ---------- Write mode ---------- */
@@ -1828,17 +1831,14 @@ function checkWriting() {
 function switchTab(tab) {
   var isTable = tab === "table";
   var isLearn = tab === "learn";
-  var isWrite = tab === "write";
   var isConflicts = tab === "conflicts";
   document.getElementById("view-table").hidden = !isTable;
   document.getElementById("view-learn").hidden = !isLearn;
-  document.getElementById("view-write").hidden = !isWrite;
   document.getElementById("view-conflicts").hidden = !isConflicts;
   document.getElementById("tab-table").classList.toggle("active", isTable);
   document.getElementById("tab-learn").classList.toggle("active", isLearn);
-  document.getElementById("tab-write").classList.toggle("active", isWrite);
   document.getElementById("tab-conflicts").classList.toggle("active", isConflicts);
-  if (!isTable && !isConflicts && !isWrite) {
+  if (isLearn) {
     learnRevealed = false;
     learnShowEnglish = true;
     learnShowHanzi = false;
@@ -1849,18 +1849,38 @@ function switchTab(tab) {
     } else {
       shuffledIndices = [];
     }
-    updateModeToggles();
-    renderLearn();
-  }
-  if (isWrite) {
     writeIndex = 0;
     if (writeShuffle) shuffleWriteCards(); else writeShuffledIndices = [];
-    updateWriteToggles();
-    renderWrite();
-    initCanvas();
+    renderLearnSub();
   }
   if (isConflicts) {
     renderConflicts();
+  }
+}
+
+function switchLearnSub(mode) {
+  learnSub = mode === "write" ? "write" : "cards";
+  if (learnSub === "write") resetWritePool(); else resetLearnPool();
+  renderLearnSub();
+}
+
+function renderLearnSub() {
+  var isCards = learnSub !== "write";
+  var subCards = document.getElementById("learn-sub-cards");
+  var subWrite = document.getElementById("learn-sub-write");
+  if (subCards) subCards.classList.toggle("active", isCards);
+  if (subWrite) subWrite.classList.toggle("active", !isCards);
+  document.getElementById("learn-wrap").hidden = !isCards;
+  document.getElementById("write-wrap").hidden = isCards;
+  if (!isCards) document.getElementById("learn-empty").hidden = true;
+  if (isCards) document.getElementById("write-empty").hidden = true;
+  updateModeToggles();
+  updateWriteToggles();
+  if (isCards) {
+    renderLearn();
+  } else {
+    renderWrite();
+    initCanvas();
   }
 }
 
@@ -2297,7 +2317,7 @@ function applyBackupPayload(text) {
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
   showRecoveredBanner("Restored from file backup (from " + when + ").");
 }
 
@@ -2664,7 +2684,7 @@ function syncNow() {
     conflicts = merged.conflicts || []; sheets = merged.sheets;
     currentSheetId = merged.currentSheetId || sheets[0].id;
     if (!sheets.some(function(s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
-    rows = sheetById(currentSheetId).rows; saveSheets(); renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+    rows = sheetById(currentSheetId).rows; saveSheets(); renderSheetSelect(); renderTable(); renderLearnSub(); updateConflictsTab();
     if (merged.conflicts && merged.conflicts.length > 0) { 
       showSyncBanner("Sync complete with " + merged.conflicts.length + " conflicts. Check Conflicts tab."); 
       setSyncStatus("success", "Sync complete with " + merged.conflicts.length + " conflicts"); 
@@ -2728,7 +2748,7 @@ function resolveConflict(cf, choice) {
     var row = sheet.rows[ci]; row.en = (row.en || "").replace(/ \[CONFLICT:[^\]]*\]/g, ""); row.id = cf.rowId + "-remote-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
   }
   cf.resolved = true; conflicts = conflicts.filter(function(c) { return !c.resolved; });
-  saveSheets(); renderTable(); renderLearn(); updateConflictsTab(); renderConflicts();
+  saveSheets(); renderTable(); renderLearnSub(); updateConflictsTab(); renderConflicts();
 }
 
 function resolveAllConflicts() {
@@ -2938,7 +2958,7 @@ function applyMergedRemote(remoteData) {
   saveSheets();
   driveIgnoreDirty = false;
   driveDirtyAt = 0;
-  renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+  renderSheetSelect(); renderTable(); renderLearnSub(); updateConflictsTab();
   return true;
 }
 /* Push the merged state, then verify our write survived (no concurrent
@@ -3088,7 +3108,7 @@ function restoreFromCloud() {
       rows = sheetById(currentSheetId).rows;
       if (Array.isArray(remoteData.deleted)) { deletedRows = remoteData.deleted; saveDeletedRows(); }
       saveSheets();
-      renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+      renderSheetSelect(); renderTable(); renderLearnSub(); updateConflictsTab();
       showSyncBanner("Restored from Google Drive.");
     });
   }).catch(function (e) {

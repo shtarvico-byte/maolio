@@ -473,9 +473,27 @@
       assert(html.indexOf("localStorage.getItem(MODE_PREFS_KEY)") !== -1 && html.indexOf("localStorage.setItem(MODE_PREFS_KEY") !== -1,
         "the All sheets / Short toggles must persist to localStorage");
       assert(/loadModePrefs\(\);/.test(html), "loadModePrefs must run at startup");
-      assert(html.indexOf("function shuffleWriteCards(") !== -1 && /if \(isWrite\) \{[\s\S]*?shuffleWriteCards\(\)/.test(html),
-        "Write mode must shuffle its (possibly all-sheets) pool when Shuffle is on");
+      assert(html.indexOf("function shuffleWriteCards(") !== -1 && /if \(isLearn\) \{[\s\S]*?shuffleWriteCards\(\)/.test(html),
+        "the Write sub-mode must shuffle its (possibly all-sheets) pool when Shuffle is on");
       report("learn/write modes: All sheets pools every sheet, Short keeps ≤2-word hanzi, toggles persist in localStorage, write gets Shuffle", true);
+    });
+  }
+
+  function testLearnWriteCombined() {
+    // Write is not a top-level tab anymore: the Learn tab hosts a Cards/Write
+    // sub-switcher, and the write canvas lives inside the learn view.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(html.indexOf('id="tab-write"') === -1 && html.indexOf('id="view-write"') === -1,
+        "the top-level Write tab must be gone");
+      assert(/id="view-learn"[\s\S]*?id="learn-sub-cards"[\s\S]*?switchLearnSub\('cards'\)[\s\S]*?id="learn-sub-write"[\s\S]*?switchLearnSub\('write'\)/.test(html),
+        "the Learn view must have a Cards/Write sub-switcher wired to switchLearnSub()");
+      assert(/id="view-learn"[\s\S]*?id="write-wrap"[\s\S]*?id="write-canvas"[\s\S]*?id="view-conflicts"/.test(html),
+        "the write canvas must live inside the learn view");
+      assert(html.indexOf("function switchLearnSub(") !== -1 && html.indexOf("function renderLearnSub(") !== -1,
+        "switchLearnSub/renderLearnSub must exist");
+      assert(/function renderLearnSub\(\) \{[\s\S]*?renderLearn\(\)[\s\S]*?renderWrite\(\)/.test(html),
+        "renderLearnSub must dispatch between the cards and the write sub-mode");
+      report("learn+write combined under the Learn tab: Cards/Write sub-switcher, write canvas inside view-learn, no separate Write tab", true);
     });
   }
 
@@ -503,7 +521,8 @@
       ["sw-network-first-app-code", testSwNetworkFirstForAppCode],
       ["write-guide-overlay", testWriteGuideOverlay],
       ["write-ocr-check", testWriteOcr],
-      ["mode-toggles", testModeToggles]
+      ["mode-toggles", testModeToggles],
+      ["learn-write-combined", testLearnWriteCombined]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
