@@ -452,6 +452,33 @@
     });
   }
 
+  function testModeToggles() {
+    // Learn + Write must each offer "All sheets" (pool cards from every sheet)
+    // and "Short (≤2 words)" (hanzi cell = at most 2 whitespace-separated words);
+    // both persist to localStorage. Write also gets a Shuffle toggle over the pool.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(/id="mode-toggles"[\s\S]*?id="toggle-all-sheets"[\s\S]*?toggleLearnAllSheets\(\)[\s\S]*?id="toggle-short"[\s\S]*?toggleLearnShort\(\)/.test(html),
+        "Learn view must have All sheets + Short toggles wired to their handlers");
+      assert(/id="write-mode-toggles"[\s\S]*?id="write-toggle-shuffle"[\s\S]*?toggleWriteShuffle\(\)[\s\S]*?id="write-toggle-all-sheets"[\s\S]*?toggleWriteAllSheets\(\)[\s\S]*?id="write-toggle-short"[\s\S]*?toggleWriteShort\(\)/.test(html),
+        "Write view must have Shuffle + All sheets + Short toggles wired to their handlers");
+      assert(html.indexOf("function allSheetsRows()") !== -1, "allSheetsRows() pooling helper missing");
+      assert(/function learnRows\(\) \{\s*var base = learnAllSheets \? allSheetsRows\(\) : rows;/.test(html),
+        "learnRows must pool all sheets when All sheets is on");
+      assert(/function writeRows\(\) \{\s*var base = writeAllSheets \? allSheetsRows\(\) : rows;/.test(html),
+        "writeRows must pool all sheets when All sheets is on");
+      assert(html.indexOf("function isShortRow(") !== -1 && html.indexOf("split(/\\s+/)") !== -1 && html.indexOf("<= 2") !== -1,
+        "isShortRow must count whitespace-separated hanzi words and keep at most 2");
+      assert(/learnShort && !isShortRow\(r\)/.test(html) && /writeShort && !isShortRow\(r\)/.test(html),
+        "both modes must apply the Short filter to their card pool");
+      assert(html.indexOf("localStorage.getItem(MODE_PREFS_KEY)") !== -1 && html.indexOf("localStorage.setItem(MODE_PREFS_KEY") !== -1,
+        "the All sheets / Short toggles must persist to localStorage");
+      assert(/loadModePrefs\(\);/.test(html), "loadModePrefs must run at startup");
+      assert(html.indexOf("function shuffleWriteCards(") !== -1 && /if \(isWrite\) \{[\s\S]*?shuffleWriteCards\(\)/.test(html),
+        "Write mode must shuffle its (possibly all-sheets) pool when Shuffle is on");
+      report("learn/write modes: All sheets pools every sheet, Short keeps ≤2-word hanzi, toggles persist in localStorage, write gets Shuffle", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -475,7 +502,8 @@
       ["update-reload-wired", testUpdateReloadWired],
       ["sw-network-first-app-code", testSwNetworkFirstForAppCode],
       ["write-guide-overlay", testWriteGuideOverlay],
-      ["write-ocr-check", testWriteOcr]
+      ["write-ocr-check", testWriteOcr],
+      ["mode-toggles", testModeToggles]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
