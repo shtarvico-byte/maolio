@@ -500,6 +500,59 @@
     });
   }
 
+  function testCardPracticeWrite() {
+    // Each flashcard offers a "Practice writing" entry point that jumps to the
+    // Write sub-mode positioned on the same word, so the OCR Check practice is
+    // reachable from the card itself (it used to be a separate top-level tab).
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(/function renderLearn\(\)[\s\S]*?practiceCurrentCard\(\)/.test(html),
+        "renderLearn must add a per-card button wired to practiceCurrentCard()");
+      assert(/practice\.disabled = writeRows\(\)\.indexOf\(row\) < 0/.test(html),
+        "the Practice writing button must be disabled when the card is not in the write pool (e.g. no hanzi / Short filter)");
+      assert(/function practiceCurrentCard\(\) \{[\s\S]*?learnSub = "write"[\s\S]*?writeRows\(\)\.indexOf\(row\)[\s\S]*?renderLearnSub\(\)/.test(html),
+        "practiceCurrentCard must switch to the Write sub-mode on the current card's row and re-render");
+      assert(/function practiceCurrentCard\(\)[\s\S]*?writeShuffledIndices\.indexOf\(/.test(html),
+        "practiceCurrentCard must map the row through the shuffled write pool when Shuffle is on");
+      report("per-card OCR practice entry: 'Practice writing' button on each flashcard jumps to the Write sub-tab on that word", true);
+    });
+  }
+
+  function testSubTabContrast() {
+    // The Cards/Write sub-tabs sit on the light page background, so an inactive
+    // sub-tab must not rely on the header-style translucent white button
+    // (white text on rgba(255,255,255,.2) is unreadable there): it needs a
+    // solid card background, dark text, and a border, in both themes.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(/\.learn-subtabs \.tab-btn\s*\{[^}]*background:\s*var\(--card\)[^}]*color:\s*var\(--text\)[^}]*border:\s*2px solid var\(--border\)/.test(html),
+        "inactive Cards/Write sub-tabs need solid var(--card) background, var(--text) color, and a var(--border) border");
+      assert(/\.learn-subtabs \.tab-btn\.active\s*\{[^}]*border-color:\s*var\(--theme\)/.test(html),
+        "the active sub-tab must keep a visible var(--theme) border");
+      assert(html.indexOf("--card:") !== -1 && html.indexOf("--text:") !== -1 && html.indexOf("--border:") !== -1 &&
+             /body\.theme-calico[\s\S]*?--card:/.test(html),
+        "--card/--text/--border must be defined for both the tiger and the calico theme");
+      report("sub-tab contrast: inactive Cards/Write buttons get solid card background + dark text + border (readable on the light page in both themes)", true);
+    });
+  }
+
+  function testShortFilterCjk() {
+    // Short mode must exclude sentences: Chinese text has no spaces, so each
+    // hanzi character counts as one word (whitespace only separates tokens).
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      var m = html.match(/function isShortRow\(r\) \{[\s\S]*?\n\}/);
+      assert(m, "isShortRow must exist in index.html");
+      var isShortRow = eval("(" + m[0] + ")");
+      assert(isShortRow({ hanzi: "水" }) === true, "1-char word must be short");
+      assert(isShortRow({ hanzi: "你好" }) === true, "2-char word must be short");
+      assert(isShortRow({ hanzi: "图书馆" }) === false, "3-char word must not be short");
+      assert(isShortRow({ hanzi: "今天天气很好" }) === false, "a spaceless sentence must not be short");
+      assert(isShortRow({ hanzi: "今天 天气 很好" }) === false, "a spaced 3-word sentence must not be short");
+      assert(isShortRow({ hanzi: "hello world" }) === true, "2 latin tokens count as 2 words");
+      assert(isShortRow({ hanzi: "" }) === true, "empty hanzi passes (other filters drop it)");
+      assert(isShortRow({}) === true, "missing hanzi passes (other filters drop it)");
+      report("short filter counts hanzi characters as words: sentences (spaced or not) are excluded, <=2-char words pass", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -525,7 +578,10 @@
       ["write-guide-overlay", testWriteGuideOverlay],
       ["write-ocr-check", testWriteOcr],
       ["mode-toggles", testModeToggles],
-      ["learn-write-combined", testLearnWriteCombined]
+      ["learn-write-combined", testLearnWriteCombined],
+      ["card-practice-write", testCardPracticeWrite],
+      ["sub-tab-contrast", testSubTabContrast],
+      ["short-filter-cjk", testShortFilterCjk]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {

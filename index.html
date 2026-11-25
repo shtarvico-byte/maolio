@@ -140,6 +140,16 @@
     min-height: 44px;
   }
   .tab-btn.active { background: #fff; color: var(--theme-dark); font-weight: 700; }
+  .learn-subtabs .tab-btn {
+    background: var(--card);
+    color: var(--text);
+    border: 2px solid var(--border);
+  }
+  .learn-subtabs .tab-btn.active {
+    background: #fff;
+    color: var(--theme-dark);
+    border-color: var(--theme);
+  }
   .new-row-btn { background: var(--th-surface); color: var(--theme-dark); font-weight: 700; }
   .sheet-select {
     font-size: 1rem;
@@ -401,7 +411,7 @@
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
   <div class="header-left">
-    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.15</span></h1>
+    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.18</span></h1>
   </div>
   <div class="header-center">
     <select id="sheet-select-header" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
@@ -529,7 +539,7 @@
 <script>
 "use strict";
 
-var APP_VERSION = "6.15";
+var APP_VERSION = "6.18";
 var APP_BRANCH = (function() {
   var path = window.location.pathname;
   if (path.includes("/dev/") || path.includes("/dev")) {
@@ -1327,7 +1337,14 @@ function allSheetsRows() {
 function isShortRow(r) {
   var h = ((r && r.hanzi) || "").trim();
   if (!h) return true;
-  return h.split(/\s+/).length <= 2;
+  var count = 0;
+  h.split(/\s+/).forEach(function (tok) {
+    var cjk = Array.from(tok).filter(function (ch) {
+      return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(ch);
+    }).length;
+    count += cjk || 1;
+  });
+  return count <= 2;
 }
 
 function learnRows() {
@@ -1530,6 +1547,13 @@ function renderLearn() {
   next.textContent = "Next →";
   next.addEventListener("click", function () { navLearn(1); });
 
+  var practice = document.createElement("button");
+  practice.className = "btn secondary";
+  practice.textContent = "✍ Practice writing";
+  practice.title = "Open the Write sub-tab on this word (OCR check)";
+  practice.disabled = writeRows().indexOf(row) < 0;
+  practice.addEventListener("click", function () { practiceCurrentCard(); });
+
   if (learnRevealed) {
     var say = document.createElement("button");
     say.className = "btn";
@@ -1540,6 +1564,7 @@ function renderLearn() {
   } else {
     controls.appendChild(show);
   }
+  controls.appendChild(practice);
   controls.appendChild(prev);
   controls.appendChild(next);
 }
@@ -1550,6 +1575,23 @@ function navLearn(delta) {
   if (learnIndex < 0) learnIndex = len - 1;
   if (learnIndex >= len) learnIndex = 0;
   learnRevealed = false;
+  renderLearnSub();
+}
+
+function practiceCurrentCard() {
+  var row = learnRows()[getCurrentCardIndex()];
+  if (!row) return;
+  learnSub = "write";
+  resetWritePool();
+  var idx = writeRows().indexOf(row);
+  if (idx >= 0) {
+    if (shuffleOn && writeShuffledIndices.length > 0) {
+      var pos = writeShuffledIndices.indexOf(idx);
+      writeIndex = pos >= 0 ? pos : 0;
+    } else {
+      writeIndex = idx;
+    }
+  }
   renderLearnSub();
 }
 
