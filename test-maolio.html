@@ -534,6 +534,25 @@
     });
   }
 
+  function testShortFilterCjk() {
+    // Short mode must exclude sentences: Chinese text has no spaces, so each
+    // hanzi character counts as one word (whitespace only separates tokens).
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      var m = html.match(/function isShortRow\(r\) \{[\s\S]*?\n\}/);
+      assert(m, "isShortRow must exist in index.html");
+      var isShortRow = eval("(" + m[0] + ")");
+      assert(isShortRow({ hanzi: "水" }) === true, "1-char word must be short");
+      assert(isShortRow({ hanzi: "你好" }) === true, "2-char word must be short");
+      assert(isShortRow({ hanzi: "图书馆" }) === false, "3-char word must not be short");
+      assert(isShortRow({ hanzi: "今天天气很好" }) === false, "a spaceless sentence must not be short");
+      assert(isShortRow({ hanzi: "今天 天气 很好" }) === false, "a spaced 3-word sentence must not be short");
+      assert(isShortRow({ hanzi: "hello world" }) === true, "2 latin tokens count as 2 words");
+      assert(isShortRow({ hanzi: "" }) === true, "empty hanzi passes (other filters drop it)");
+      assert(isShortRow({}) === true, "missing hanzi passes (other filters drop it)");
+      report("short filter counts hanzi characters as words: sentences (spaced or not) are excluded, <=2-char words pass", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -561,7 +580,8 @@
       ["mode-toggles", testModeToggles],
       ["learn-write-combined", testLearnWriteCombined],
       ["card-practice-write", testCardPracticeWrite],
-      ["sub-tab-contrast", testSubTabContrast]
+      ["sub-tab-contrast", testSubTabContrast],
+      ["short-filter-cjk", testShortFilterCjk]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {

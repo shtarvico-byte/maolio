@@ -1337,7 +1337,14 @@ function allSheetsRows() {
 function isShortRow(r) {
   var h = ((r && r.hanzi) || "").trim();
   if (!h) return true;
-  return h.split(/\s+/).length <= 2;
+  var count = 0;
+  h.split(/\s+/).forEach(function (tok) {
+    var cjk = Array.from(tok).filter(function (ch) {
+      return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(ch);
+    }).length;
+    count += cjk || 1;
+  });
+  return count <= 2;
 }
 
 function learnRows() {
