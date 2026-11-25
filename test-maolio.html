@@ -517,6 +517,23 @@
     });
   }
 
+  function testSubTabContrast() {
+    // The Cards/Write sub-tabs sit on the light page background, so an inactive
+    // sub-tab must not rely on the header-style translucent white button
+    // (white text on rgba(255,255,255,.2) is unreadable there): it needs a
+    // solid card background, dark text, and a border, in both themes.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(/\.learn-subtabs \.tab-btn\s*\{[^}]*background:\s*var\(--card\)[^}]*color:\s*var\(--text\)[^}]*border:\s*2px solid var\(--border\)/.test(html),
+        "inactive Cards/Write sub-tabs need solid var(--card) background, var(--text) color, and a var(--border) border");
+      assert(/\.learn-subtabs \.tab-btn\.active\s*\{[^}]*border-color:\s*var\(--theme\)/.test(html),
+        "the active sub-tab must keep a visible var(--theme) border");
+      assert(html.indexOf("--card:") !== -1 && html.indexOf("--text:") !== -1 && html.indexOf("--border:") !== -1 &&
+             /body\.theme-calico[\s\S]*?--card:/.test(html),
+        "--card/--text/--border must be defined for both the tiger and the calico theme");
+      report("sub-tab contrast: inactive Cards/Write buttons get solid card background + dark text + border (readable on the light page in both themes)", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -543,7 +560,8 @@
       ["write-ocr-check", testWriteOcr],
       ["mode-toggles", testModeToggles],
       ["learn-write-combined", testLearnWriteCombined],
-      ["card-practice-write", testCardPracticeWrite]
+      ["card-practice-write", testCardPracticeWrite],
+      ["sub-tab-contrast", testSubTabContrast]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
