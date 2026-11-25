@@ -128,6 +128,7 @@
   }
 
   .tabs { display: flex; gap: 8px; }
+  .learn-subtabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
   .tab-btn {
     background: rgba(255,255,255,.2);
     border: none;
@@ -302,6 +303,7 @@
   .write-wrap { display: flex; flex-direction: column; align-items: center; gap: 20px; padding-top: 24px; }
   .write-prompt { font-size: 2.5rem; text-align: center; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
   .write-pinyin { font-size: 1.4rem; color: var(--theme-dark); }
+  #write-canvas-wrap { position: relative; width: 100%; max-width: 640px; }
   #write-canvas {
     background: #fff;
     border-radius: 16px;
@@ -313,6 +315,11 @@
     touch-action: none;
     cursor: crosshair;
   }
+  #write-guide { position: absolute; top: 3px; left: 3px; right: 3px; bottom: 3px; pointer-events: none; }
+  .write-result { font-size: 1.1rem; font-weight: 700; text-align: center; }
+  .write-result.ok { color: #15803d; }
+  .write-result.bad { color: var(--danger); }
+  .write-result.warn { color: var(--muted); }
   .write-controls { display: flex; flex-direction: column; gap: 12px; align-items: center; }
   .write-nav { display: flex; gap: 12px; align-items: center; }
   #update-banner {
@@ -394,7 +401,7 @@
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
   <div class="header-left">
-    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.0</span></h1>
+    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.15</span></h1>
   </div>
   <div class="header-center">
     <select id="sheet-select-header" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
@@ -404,7 +411,6 @@
     <nav class="tabs">
       <button class="tab-btn active" id="tab-table" onclick="switchTab('table')">Table</button>
       <button class="tab-btn" id="tab-learn" onclick="switchTab('learn')">Learn</button>
-      <button class="tab-btn" id="tab-write" onclick="switchTab('write')">Write</button>
       <button class="tab-btn" id="tab-conflicts" onclick="switchTab('conflicts')" hidden>Conflicts</button>
     </nav>
     <div style="position: relative;">
@@ -456,8 +462,26 @@
   </section>
 
   <section id="view-learn" hidden>
+    <nav class="tabs learn-subtabs">
+      <button class="tab-btn active" id="learn-sub-cards" onclick="switchLearnSub('cards')">Cards</button>
+      <button class="tab-btn" id="learn-sub-write" onclick="switchLearnSub('write')">Write</button>
+    </nav>
+    <div class="mode-toggles" id="mode-toggles">
+      <div class="toggle-switch">
+        <label for="toggle-shuffle">Shuffle</label>
+        <input type="checkbox" id="toggle-shuffle" onclick="toggleShuffleMode()">
+      </div>
+      <div class="toggle-switch">
+        <label for="toggle-all-sheets">All sheets</label>
+        <input type="checkbox" id="toggle-all-sheets" onclick="toggleAllSheetsMode()">
+      </div>
+      <div class="toggle-switch">
+        <label for="toggle-short">Short (≤2 words)</label>
+        <input type="checkbox" id="toggle-short" onclick="toggleShortMode()">
+      </div>
+    </div>
     <div class="learn-wrap" id="learn-wrap">
-      <div class="mode-toggles" id="mode-toggles">
+      <div class="mode-toggles" id="card-mode-toggles">
         <div class="toggle-switch">
           <label for="toggle-english">Show English</label>
           <input type="checkbox" id="toggle-english" checked onclick="toggleLearnMode('english')">
@@ -470,26 +494,24 @@
           <label for="toggle-pinyin">Show Pinyin</label>
           <input type="checkbox" id="toggle-pinyin" onclick="toggleLearnMode('pinyin')">
         </div>
-        <div class="toggle-switch">
-          <label for="toggle-shuffle">Shuffle</label>
-          <input type="checkbox" id="toggle-shuffle" onclick="toggleShuffleMode()">
-        </div>
       </div>
       <div class="learn-card" id="learn-card"></div>
       <div class="card-counter" id="learn-counter"></div>
       <div class="learn-controls" id="learn-controls"></div>
     </div>
     <div class="empty-state" id="learn-empty" hidden>Add some words in the Table tab first.</div>
-  </section>
-  <section id="view-write" hidden>
-    <div class="write-wrap" id="write-wrap">
+    <div class="write-wrap" id="write-wrap" hidden>
       <div class="write-prompt" id="write-prompt">
         <span id="write-hanzi"></span>
         <span id="write-pinyin" class="write-pinyin"></span>
       </div>
-      <canvas id="write-canvas"></canvas>
+      <div id="write-canvas-wrap">
+        <canvas id="write-canvas"></canvas>
+        <canvas id="write-guide"></canvas>
+      </div>
       <div class="write-controls" id="write-controls">
         <button class="btn secondary" onclick="clearCanvas()">Clear</button>
+        <button class="btn secondary" id="write-guide-btn" onclick="toggleWriteGuide()">Guide: On</button>
         <button class="btn" onclick="checkWriting()">Check</button>
         <div class="write-nav">
           <button class="btn secondary" onclick="navWrite(-1)">← Prev</button>
@@ -497,6 +519,7 @@
           <button class="btn secondary" onclick="navWrite(1)">Next →</button>
         </div>
       </div>
+      <div id="write-result" class="write-result" hidden></div>
     </div>
     <div class="empty-state" id="write-empty" hidden>Add some words in the Table tab first.</div>
   </section><section id="view-conflicts" hidden><div class="toolbar"><h3>Sync Conflicts</h3><button class="btn" onclick="resolveAllConflicts()">Resolve All</button></div><div id="conflicts-list" class="conflicts-list"></div></section>
@@ -506,7 +529,7 @@
 <script>
 "use strict";
 
-var APP_VERSION = "6.10";
+var APP_VERSION = "6.15";
 var APP_BRANCH = (function() {
   var path = window.location.pathname;
   if (path.includes("/dev/") || path.includes("/dev")) {
@@ -535,13 +558,33 @@ var learnRevealed = false;
 var learnShowEnglish = true;
 var learnShowHanzi = false;
 var learnShowPinyin = false;
-var learnShuffle = false;
+var shuffleOn = false;
 var shuffledIndices = [];
+var MODE_PREFS_KEY = "zht-vocab-mode-prefs-v1";
+var allSheetsOn = false;
+var shortOn = false;
+var learnSub = "cards";
 
 /* Write mode state */
 var writeIndex = 0;
-var writeShuffle = false;
 var writeShuffledIndices = [];
+
+function loadModePrefs() {
+  try {
+    var raw = localStorage.getItem(MODE_PREFS_KEY);
+    if (!raw) return;
+    var p = JSON.parse(raw);
+    if (!p) return;
+    allSheetsOn = !!(p.allSheets || (p.learn && p.learn.allSheets) || (p.write && p.write.allSheets));
+    shortOn = !!(p.short || (p.learn && p.learn.short) || (p.write && p.write.short));
+  } catch (e) { /* ignore */ }
+}
+
+function persistModePrefs() {
+  try {
+    localStorage.setItem(MODE_PREFS_KEY, JSON.stringify({ allSheets: allSheetsOn, short: shortOn }));
+  } catch (e) { /* ignore */ }
+}
 var isDrawing = false;
 var canvasCtx = null;
 
@@ -764,13 +807,13 @@ function restoreBackup() {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
-  learnShuffle = false;
+  shuffleOn = false;
   shuffledIndices = [];
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
   showRecoveredBanner("Backup restored. Your previous sheets were kept as a backup — use Restore backup again to get them back.");
 }
 
@@ -808,13 +851,13 @@ function switchSheet(id) {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
-  learnShuffle = false;
+  shuffleOn = false;
   shuffledIndices = [];
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
 }
 
 function newSheet() {
@@ -853,7 +896,7 @@ function deleteSheet() {
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
 }
 
 function renderSheetSelect() {
@@ -1272,8 +1315,28 @@ if ("speechSynthesis" in window) {
 
 /* ---------- Learn mode ---------- */
 
+function allSheetsRows() {
+  var out = [];
+  for (var i = 0; i < sheets.length; i++) {
+    var rs = sheets[i] && sheets[i].rows;
+    if (Array.isArray(rs)) out = out.concat(rs);
+  }
+  return out;
+}
+
+function isShortRow(r) {
+  var h = ((r && r.hanzi) || "").trim();
+  if (!h) return true;
+  return h.split(/\s+/).length <= 2;
+}
+
 function learnRows() {
-  return rows.filter(function (r) { return (r.en || "").trim() !== ""; });
+  var base = allSheetsOn ? allSheetsRows() : rows;
+  return base.filter(function (r) {
+    if ((r.en || "").trim() === "") return false;
+    if (shortOn && !isShortRow(r)) return false;
+    return true;
+  });
 }
 
 function toggleLearnMode(field) {
@@ -1285,43 +1348,68 @@ function toggleLearnMode(field) {
     learnShowPinyin = !learnShowPinyin;
   }
   updateModeToggles();
-  renderLearn();
+  renderLearnSub();
 }
 
 function toggleShuffleMode() {
-  learnShuffle = !learnShuffle;
+  shuffleOn = !shuffleOn;
   var shuffleToggle = document.getElementById('toggle-shuffle');
-  if (shuffleToggle) shuffleToggle.checked = learnShuffle;
-  if (learnShuffle) {
-    shuffleCards();
-  } else {
-    shuffledIndices = [];
-  }
-  learnIndex = 0;
-  learnRevealed = false;
+  if (shuffleToggle) shuffleToggle.checked = shuffleOn;
+  resetLearnPool();
+  resetWritePool();
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
   updateModeToggles();
-  renderLearn();
+  renderLearnSub();
+}
+
+function resetLearnPool() {
+  learnIndex = 0;
+  learnRevealed = false;
+  if (shuffleOn) shuffleCards(); else shuffledIndices = [];
+}
+
+function toggleAllSheetsMode() {
+  allSheetsOn = !allSheetsOn;
+  persistModePrefs();
+  resetLearnPool();
+  resetWritePool();
+  updateModeToggles();
+  renderLearnSub();
+}
+
+function toggleShortMode() {
+  shortOn = !shortOn;
+  persistModePrefs();
+  resetLearnPool();
+  resetWritePool();
+  updateModeToggles();
+  renderLearnSub();
+}
+
+function shuffledCopy(n) {
+  var arr = [];
+  for (var i = 0; i < n; i++) arr.push(i);
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var temp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = temp;
+  }
+  return arr;
 }
 
 function shuffleCards() {
-  var list = learnRows();
-  shuffledIndices = [];
-  for (var i = 0; i < list.length; i++) {
-    shuffledIndices.push(i);
-  }
-  for (var i = shuffledIndices.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var temp = shuffledIndices[i];
-    shuffledIndices[i] = shuffledIndices[j];
-    shuffledIndices[j] = temp;
-  }
+  shuffledIndices = shuffledCopy(learnRows().length);
+}
+
+function shuffleWriteCards() {
+  writeShuffledIndices = shuffledCopy(writeRows().length);
 }
 
 function getCurrentCardIndex() {
-  if (learnShuffle && shuffledIndices.length > 0) {
+  if (shuffleOn && shuffledIndices.length > 0) {
     return shuffledIndices[learnIndex] || 0;
   }
   return learnIndex;
@@ -1332,10 +1420,21 @@ function updateModeToggles() {
   var hanziToggle = document.getElementById('toggle-hanzi');
   var pinyinToggle = document.getElementById('toggle-pinyin');
   var shuffleToggle = document.getElementById('toggle-shuffle');
+  var allSheetsToggle = document.getElementById('toggle-all-sheets');
+  var shortToggle = document.getElementById('toggle-short');
   if (engToggle) engToggle.checked = learnShowEnglish;
   if (hanziToggle) hanziToggle.checked = learnShowHanzi;
   if (pinyinToggle) pinyinToggle.checked = learnShowPinyin;
-  if (shuffleToggle) shuffleToggle.checked = learnShuffle;
+  if (shuffleToggle) shuffleToggle.checked = shuffleOn;
+  if (allSheetsToggle) allSheetsToggle.checked = allSheetsOn;
+  if (shortToggle) shortToggle.checked = shortOn;
+}
+
+function poolSuffix() {
+  var s = "";
+  if (allSheetsOn) s += " · all sheets";
+  if (shortOn) s += " · ≤2 words";
+  return s;
 }
 
 function renderLearn() {
@@ -1349,6 +1448,9 @@ function renderLearn() {
   if (!list.length) {
     wrap.hidden = true;
     empty.hidden = false;
+    var base = allSheetsOn ? allSheetsRows() : rows;
+    var hasAny = base.some(function (r) { return (r.en || "").trim() !== ""; });
+    empty.textContent = hasAny ? "No cards match the current toggles (All sheets / Short)." : "Add some words in the Table tab first.";
     return;
   }
   wrap.hidden = false;
@@ -1402,7 +1504,7 @@ function renderLearn() {
     card.appendChild(note);
   }
 
-  counter.textContent = "Card " + (learnIndex + 1) + " of " + list.length;
+  counter.textContent = "Card " + (learnIndex + 1) + " of " + list.length + poolSuffix();
 
   controls.innerHTML = "";
   var prev = document.createElement("button");
@@ -1420,7 +1522,7 @@ function renderLearn() {
     learnShowHanzi = true;
     learnShowPinyin = true;
     updateModeToggles();
-    renderLearn();
+    renderLearnSub();
   });
 
   var next = document.createElement("button");
@@ -1448,20 +1550,30 @@ function navLearn(delta) {
   if (learnIndex < 0) learnIndex = len - 1;
   if (learnIndex >= len) learnIndex = 0;
   learnRevealed = false;
-  renderLearn();
+  renderLearnSub();
 }
 
 /* ---------- Write mode ---------- */
 
 function writeRows() {
-  return rows.filter(function (r) { return (r.hanzi || "").trim() !== ""; });
+  var base = allSheetsOn ? allSheetsRows() : rows;
+  return base.filter(function (r) {
+    if ((r.hanzi || "").trim() === "") return false;
+    if (shortOn && !isShortRow(r)) return false;
+    return true;
+  });
 }
 
 function getWriteCardIndex() {
-  if (writeShuffle && writeShuffledIndices.length > 0) {
+  if (shuffleOn && writeShuffledIndices.length > 0) {
     return writeShuffledIndices[writeIndex] || 0;
   }
   return writeIndex;
+}
+
+function resetWritePool() {
+  writeIndex = 0;
+  if (shuffleOn) shuffleWriteCards(); else writeShuffledIndices = [];
 }
 
 function initCanvas() {
@@ -1518,12 +1630,68 @@ function stopDrawing() {
 }
 
 function clearCanvas() {
+  clearWriteResult();
   var canvas = document.getElementById("write-canvas");
   if (!canvas || !canvasCtx) return;
   
   var ratio = window.devicePixelRatio || 1;
   canvasCtx.clearRect(0, 0, canvas.width / ratio, canvas.height / ratio);
   canvasCtx.beginPath();
+}
+
+var WRITE_GUIDE_KEY = "zht-vocab-write-guide";
+var writeGuideOn = true;
+
+function sizeWriteGuide() {
+  var canvas = document.getElementById("write-canvas");
+  var guide = document.getElementById("write-guide");
+  if (!canvas || !guide) return;
+  var ratio = window.devicePixelRatio || 1;
+  var w = canvas.clientWidth;
+  var h = canvas.clientHeight;
+  if (!w || !h) return;
+  guide.width = w * ratio;
+  guide.height = h * ratio;
+}
+
+function drawWriteGuide() {
+  var guide = document.getElementById("write-guide");
+  if (!guide) return;
+  sizeWriteGuide();
+  var ctx = guide.getContext("2d");
+  ctx.clearRect(0, 0, guide.width, guide.height);
+  if (!writeGuideOn) return;
+  var hanziEl = document.getElementById("write-hanzi");
+  var hanzi = hanziEl ? (hanziEl.textContent || "").trim() : "";
+  if (!hanzi) return;
+  var ratio = window.devicePixelRatio || 1;
+  var w = guide.width / ratio;
+  var h = guide.height / ratio;
+  if (!w || !h) return;
+  var size = h * 0.72;
+  ctx.fillStyle = "rgba(43,22,8,0.18)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold " + size + "px serif";
+  var maxW = w * 0.9;
+  var textW = ctx.measureText(hanzi).width;
+  if (textW > maxW && textW > 0) {
+    size = size * maxW / textW;
+    ctx.font = "bold " + size + "px serif";
+  }
+  ctx.fillText(hanzi, w / 2, h / 2);
+}
+
+function updateWriteGuideBtn() {
+  var btn = document.getElementById("write-guide-btn");
+  if (btn) btn.textContent = "Guide: " + (writeGuideOn ? "On" : "Off");
+}
+
+function toggleWriteGuide() {
+  writeGuideOn = !writeGuideOn;
+  try { localStorage.setItem(WRITE_GUIDE_KEY, writeGuideOn ? "1" : "0"); } catch (e) { /* ignore */ }
+  updateWriteGuideBtn();
+  drawWriteGuide();
 }
 
 function renderWrite() {
@@ -1537,6 +1705,9 @@ function renderWrite() {
   if (!list.length) {
     wrap.hidden = true;
     empty.hidden = false;
+    var base = allSheetsOn ? allSheetsRows() : rows;
+    var hasAny = base.some(function (r) { return (r.hanzi || "").trim() !== ""; });
+    empty.textContent = hasAny ? "No cards match the current toggles (All sheets / Short)." : "Add some words in the Table tab first.";
     return;
   }
   wrap.hidden = false;
@@ -1548,9 +1719,10 @@ function renderWrite() {
 
   hanziEl.textContent = row.hanzi || "";
   pinyinEl.textContent = row.pinyin || "";
-  counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length;
+  counter.textContent = "Card " + (writeIndex + 1) + " of " + list.length + poolSuffix();
 
   clearCanvas();
+  drawWriteGuide();
 }
 
 function navWrite(delta) {
@@ -1562,44 +1734,92 @@ function navWrite(delta) {
 }
 
 function checkWriting() {
-  alert("Check your writing! Compare it to the hanzi above.");
+  var canvas = document.getElementById("write-canvas");
+  var list = writeRows();
+  var row = list[getWriteCardIndex()];
+  var target = row ? (row.hanzi || "").trim() : "";
+  var bmp = canvas ? canvasBitmap(canvas) : null;
+  if (!bmp) { showWriteResult("Draw something first — then Check.", "warn"); return; }
+  if (!target) return;
+  var chars = Array.from(target);
+  var segs = segmentColumns(bmp, chars.length);
+  var parts = [];
+  var allOk = true;
+  if (segs) {
+    var cands = deckChars();
+    for (var i = 0; i < segs.length; i++) {
+      var best = bestMatch(segs[i], cands);
+      var ok = best.s === chars[i] && best.score >= OCR_MATCH_MIN;
+      if (!ok) allOk = false;
+      parts.push(ok ? chars[i] + " ✓ " + Math.round(best.score * 100) + "%"
+                    : chars[i] + " ✗ → " + best.s + " " + Math.round(best.score * 100) + "%");
+    }
+  } else {
+    var whole = bitmapToGrid(bmp, bmp.minX, bmp.minY, bmp.maxX, bmp.maxY);
+    var words = [], seen = {};
+    list.forEach(function (r) {
+      var h = (r.hanzi || "").trim();
+      if (h && !seen[h]) { seen[h] = 1; words.push(h); }
+    });
+    var bw = bestMatch(whole, words);
+    allOk = bw.s === target && bw.score >= OCR_MATCH_MIN;
+    parts.push((allOk ? "✓ " : "✗ → " + bw.s + " ") + Math.round(bw.score * 100) + "%");
+  }
+  showWriteResult((allOk ? "✓ Well done!  " : "✗ Not quite —  ") + parts.join("   ·   "), allOk ? "ok" : "bad");
 }
 
 function switchTab(tab) {
   var isTable = tab === "table";
   var isLearn = tab === "learn";
-  var isWrite = tab === "write";
   var isConflicts = tab === "conflicts";
   document.getElementById("view-table").hidden = !isTable;
   document.getElementById("view-learn").hidden = !isLearn;
-  document.getElementById("view-write").hidden = !isWrite;
   document.getElementById("view-conflicts").hidden = !isConflicts;
   document.getElementById("tab-table").classList.toggle("active", isTable);
   document.getElementById("tab-learn").classList.toggle("active", isLearn);
-  document.getElementById("tab-write").classList.toggle("active", isWrite);
   document.getElementById("tab-conflicts").classList.toggle("active", isConflicts);
-  if (!isTable && !isConflicts && !isWrite) {
+  if (isLearn) {
     learnRevealed = false;
     learnShowEnglish = true;
     learnShowHanzi = false;
     learnShowPinyin = false;
     learnIndex = 0;
-    if (learnShuffle) {
+    if (shuffleOn) {
       shuffleCards();
     } else {
       shuffledIndices = [];
     }
-    updateModeToggles();
-    renderLearn();
-  }
-  if (isWrite) {
     writeIndex = 0;
-    writeShuffledIndices = [];
-    renderWrite();
-    initCanvas();
+    if (shuffleOn) shuffleWriteCards(); else writeShuffledIndices = [];
+    renderLearnSub();
   }
   if (isConflicts) {
     renderConflicts();
+  }
+}
+
+function switchLearnSub(mode) {
+  learnSub = mode === "write" ? "write" : "cards";
+  if (learnSub === "write") resetWritePool(); else resetLearnPool();
+  renderLearnSub();
+}
+
+function renderLearnSub() {
+  var isCards = learnSub !== "write";
+  var subCards = document.getElementById("learn-sub-cards");
+  var subWrite = document.getElementById("learn-sub-write");
+  if (subCards) subCards.classList.toggle("active", isCards);
+  if (subWrite) subWrite.classList.toggle("active", !isCards);
+  document.getElementById("learn-wrap").hidden = !isCards;
+  document.getElementById("write-wrap").hidden = isCards;
+  if (!isCards) document.getElementById("learn-empty").hidden = true;
+  if (isCards) document.getElementById("write-empty").hidden = true;
+  updateModeToggles();
+  if (isCards) {
+    renderLearn();
+  } else {
+    renderWrite();
+    initCanvas();
   }
 }
 
@@ -1644,6 +1864,161 @@ function loadTheme() {
   var saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch (e) { saved = null; }
   applyTheme(saved);
+}
+
+function loadWriteGuide() {
+  try { writeGuideOn = localStorage.getItem(WRITE_GUIDE_KEY) !== "0"; } catch (e) { writeGuideOn = true; }
+  updateWriteGuideBtn();
+}
+
+/* ---------- Write OCR: evaluate the drawing against the deck, on-device ---------- */
+
+var OCR_GRID = 48;
+var OCR_MATCH_MIN = 0.3;
+var glyphCache = {};
+
+function canvasBitmap(canvas) {
+  var w = canvas.width, h = canvas.height;
+  if (!w || !h) return null;
+  var img;
+  try { img = canvas.getContext("2d").getImageData(0, 0, w, h); } catch (e) { return null; }
+  var d = img.data, bmp = new Uint8Array(w * h);
+  var minX = w, minY = h, maxX = -1, maxY = -1;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] > 40) {
+        bmp[y * w + x] = 1;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { data: bmp, w: w, h: h, minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+}
+
+function bitmapToGrid(bmp, x0, y0, x1, y1) {
+  var bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  var scale = Math.min(OCR_GRID / bw, OCR_GRID / bh);
+  var gw = Math.max(1, Math.round(bw * scale)), gh = Math.max(1, Math.round(bh * scale));
+  var grid = new Uint8Array(OCR_GRID * OCR_GRID);
+  var offX = Math.round((OCR_GRID - gw) / 2), offY = Math.round((OCR_GRID - gh) / 2);
+  for (var gy = 0; gy < gh; gy++) {
+    for (var gx = 0; gx < gw; gx++) {
+      var sx = x0 + Math.min(bw - 1, Math.floor(gx / scale));
+      var sy = y0 + Math.min(bh - 1, Math.floor(gy / scale));
+      if (bmp.data[sy * bmp.w + sx]) grid[(offY + gy) * OCR_GRID + offX + gx] = 1;
+    }
+  }
+  return grid;
+}
+
+function glyphGrid(s) {
+  if (glyphCache[s]) return glyphCache[s];
+  var c = document.createElement("canvas");
+  c.width = c.height = OCR_GRID * 2;
+  var ctx = c.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold " + Math.round(OCR_GRID * 1.5) + "px serif";
+  ctx.fillText(s, c.width / 2, c.height / 2);
+  var bmp = canvasBitmap(c);
+  var g = bmp ? bitmapToGrid(bmp, bmp.minX, bmp.minY, bmp.maxX, bmp.maxY)
+              : new Uint8Array(OCR_GRID * OCR_GRID);
+  glyphCache[s] = g;
+  return g;
+}
+
+function segmentColumns(bmp, targetCount) {
+  var bw = bmp.maxX - bmp.minX + 1;
+  var scale = Math.min(1, 240 / bw);
+  var w2 = Math.max(1, Math.round(bw * scale));
+  var colInk = new Array(w2).fill(0);
+  for (var x = bmp.minX; x <= bmp.maxX; x++) {
+    var c2 = Math.min(w2 - 1, Math.round((x - bmp.minX) * scale));
+    for (var y = bmp.minY; y <= bmp.maxY; y++) if (bmp.data[y * bmp.w + x]) colInk[c2]++;
+  }
+  var spans = [], start = -1, lastInk = -1;
+  for (var i = 0; i < w2; i++) {
+    if (colInk[i] > 0) {
+      if (start < 0) start = i;
+      lastInk = i;
+    } else if (start >= 0 && i - lastInk >= 2) {
+      spans.push({ a: start, b: lastInk });
+      start = -1;
+    }
+  }
+  if (start >= 0) spans.push({ a: start, b: lastInk });
+  /* merge adjacent spans across the smallest gaps until the count matches the
+     target word length (intra-character gaps are smaller than inter-character) */
+  while (spans.length > targetCount) {
+    var bestK = 0, bestGap = Infinity;
+    for (var k = 0; k < spans.length - 1; k++) {
+      var g = spans[k + 1].a - spans[k].b - 1;
+      if (g < bestGap) { bestGap = g; bestK = k; }
+    }
+    spans.splice(bestK, 2, { a: spans[bestK].a, b: spans[bestK + 1].b });
+  }
+  if (spans.length !== targetCount) return null;
+  return spans.map(function (s) {
+    var x0 = bmp.minX + Math.round(s.a / scale);
+    var x1 = bmp.minX + Math.round(s.b / scale);
+    return bitmapToGrid(bmp, x0, bmp.minY, x1, bmp.maxY);
+  });
+}
+
+function matchScore(g1, g2) {
+  var best = 0;
+  for (var dy = -2; dy <= 2; dy++) {
+    for (var dx = -2; dx <= 2; dx++) {
+      var inter = 0, union = 0;
+      for (var y = 0; y < OCR_GRID; y++) {
+        for (var x = 0; x < OCR_GRID; x++) {
+          var a = g1[y * OCR_GRID + x];
+          var yy = y + dy, xx = x + dx;
+          var b = (yy >= 0 && yy < OCR_GRID && xx >= 0 && xx < OCR_GRID) ? g2[yy * OCR_GRID + xx] : 0;
+          if (a && b) inter++;
+          if (a || b) union++;
+        }
+      }
+      var s = union ? inter / union : 0;
+      if (s > best) best = s;
+    }
+  }
+  return best;
+}
+
+function bestMatch(grid, candidates) {
+  var best = { s: candidates[0] || "", score: -1 };
+  for (var i = 0; i < candidates.length; i++) {
+    var sc = matchScore(grid, glyphGrid(candidates[i]));
+    if (sc > best.score) best = { s: candidates[i], score: sc };
+  }
+  return best;
+}
+
+function deckChars() {
+  var seen = {}, out = [];
+  writeRows().forEach(function (r) {
+    Array.from((r.hanzi || "").trim()).forEach(function (ch) {
+      if (!seen[ch]) { seen[ch] = 1; out.push(ch); }
+    });
+  });
+  return out;
+}
+
+function showWriteResult(msg, cls) {
+  var el = document.getElementById("write-result");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "write-result " + (cls || "");
+  el.hidden = false;
+}
+
+function clearWriteResult() {
+  var el = document.getElementById("write-result");
+  if (el) { el.hidden = true; el.textContent = ""; }
 }
 
 /* ---------- App menu ---------- */
@@ -1875,13 +2250,13 @@ function applyBackupPayload(text) {
   learnShowEnglish = true;
   learnShowHanzi = false;
   learnShowPinyin = false;
-  learnShuffle = false;
+  shuffleOn = false;
   shuffledIndices = [];
   updateModeToggles();
   saveSheets();
   renderSheetSelect();
   renderTable();
-  renderLearn();
+  renderLearnSub();
   showRecoveredBanner("Restored from file backup (from " + when + ").");
 }
 
@@ -2248,7 +2623,7 @@ function syncNow() {
     conflicts = merged.conflicts || []; sheets = merged.sheets;
     currentSheetId = merged.currentSheetId || sheets[0].id;
     if (!sheets.some(function(s) { return s.id === currentSheetId; })) currentSheetId = sheets[0].id;
-    rows = sheetById(currentSheetId).rows; saveSheets(); renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+    rows = sheetById(currentSheetId).rows; saveSheets(); renderSheetSelect(); renderTable(); renderLearnSub(); updateConflictsTab();
     if (merged.conflicts && merged.conflicts.length > 0) { 
       showSyncBanner("Sync complete with " + merged.conflicts.length + " conflicts. Check Conflicts tab."); 
       setSyncStatus("success", "Sync complete with " + merged.conflicts.length + " conflicts"); 
@@ -2312,7 +2687,7 @@ function resolveConflict(cf, choice) {
     var row = sheet.rows[ci]; row.en = (row.en || "").replace(/ \[CONFLICT:[^\]]*\]/g, ""); row.id = cf.rowId + "-remote-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
   }
   cf.resolved = true; conflicts = conflicts.filter(function(c) { return !c.resolved; });
-  saveSheets(); renderTable(); renderLearn(); updateConflictsTab(); renderConflicts();
+  saveSheets(); renderTable(); renderLearnSub(); updateConflictsTab(); renderConflicts();
 }
 
 function resolveAllConflicts() {
@@ -2522,7 +2897,7 @@ function applyMergedRemote(remoteData) {
   saveSheets();
   driveIgnoreDirty = false;
   driveDirtyAt = 0;
-  renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+  renderSheetSelect(); renderTable(); renderLearnSub(); updateConflictsTab();
   return true;
 }
 /* Push the merged state, then verify our write survived (no concurrent
@@ -2672,7 +3047,7 @@ function restoreFromCloud() {
       rows = sheetById(currentSheetId).rows;
       if (Array.isArray(remoteData.deleted)) { deletedRows = remoteData.deleted; saveDeletedRows(); }
       saveSheets();
-      renderSheetSelect(); renderTable(); renderLearn(); updateConflictsTab();
+      renderSheetSelect(); renderTable(); renderLearnSub(); updateConflictsTab();
       showSyncBanner("Restored from Google Drive.");
     });
   }).catch(function (e) {
@@ -2808,7 +3183,9 @@ if (typeof GitHubSync !== "undefined") {
 }
 updateSyncMenu();
 if (driveIsConfigured() && (typeof GitHubSync === "undefined" || GitHubSync.activeBackend() !== "github")) startDriveAutoSync();
+loadModePrefs();
 loadTheme();
+loadWriteGuide();
 updateVersionDisplay();
 updateModeToggles();
 renderSheetSelect();

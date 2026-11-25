@@ -410,6 +410,96 @@
     });
   }
 
+  function testWriteGuideOverlay() {
+    // The Write tab must offer a toggleable transparent overlay of the target
+    // hanzi on its own canvas layer, so Clear/drawing never touch it.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(/<div id="write-canvas-wrap">[\s\S]*?<canvas id="write-canvas"><\/canvas>[\s\S]*?<canvas id="write-guide"><\/canvas>[\s\S]*?<\/div>/.test(html),
+        "write-canvas and write-guide must sit in one positioning wrapper");
+      assert(/#write-guide\s*\{[^}]*pointer-events:\s*none/.test(html),
+        "#write-guide must be pointer-events:none so it never blocks drawing");
+      assert(html.indexOf('id="write-guide-btn"') !== -1 && html.indexOf("toggleWriteGuide()") !== -1,
+        "a Guide toggle button must call toggleWriteGuide()");
+      assert(html.indexOf("localStorage.setItem(WRITE_GUIDE_KEY") !== -1 && html.indexOf("localStorage.getItem(WRITE_GUIDE_KEY)") !== -1,
+        "the guide on/off choice must persist to localStorage");
+      assert(/function drawWriteGuide\(\)[\s\S]*?fillText\(/.test(html),
+        "drawWriteGuide must render the prompt hanzi with fillText");
+      assert(/function renderWrite\(\)[\s\S]*?drawWriteGuide\(\)/.test(html),
+        "renderWrite must redraw the guide for every card");
+      assert(/function drawWriteGuide\(\)[\s\S]*?sizeWriteGuide\(\)/.test(html),
+        "drawWriteGuide must (re)size the guide canvas to the drawing canvas before drawing");
+      report("write guide overlay: separate pointer-transparent canvas, persisted toggle, redrawn per card and on canvas init", true);
+    });
+  }
+
+  function testWriteOcr() {
+    // The Write tab's Check button must actually evaluate the drawing on-device
+    // (binarize canvas -> segment columns -> IoU match vs deck glyphs), not alert.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(html.indexOf('id="write-result"') !== -1, "write view needs a #write-result element for feedback");
+      assert(!/function checkWriting\(\)\s*\{\s*alert\(/.test(html),
+        "checkWriting must not be a bare alert anymore");
+      assert(/function checkWriting\(\)[\s\S]*?segmentColumns\(/.test(html),
+        "checkWriting must segment the drawing");
+      assert(/function checkWriting\(\)[\s\S]*?bestMatch\(/.test(html),
+        "checkWriting must match against deck hanzi");
+      for (const fn of ["canvasBitmap", "bitmapToGrid", "glyphGrid", "segmentColumns", "matchScore", "bestMatch", "deckChars"])
+        assert(html.indexOf("function " + fn + "(") !== -1, "missing recognizer function " + fn);
+      assert(/function clearCanvas\(\)\s*\{\s*clearWriteResult\(\)/.test(html),
+        "Clear / new card must reset the result");
+      assert(html.indexOf("OCR_MATCH_MIN") !== -1, "a match threshold must gate the ✓ verdict");
+      report("write OCR: Check evaluates the drawing per character against deck hanzi (canvas bitmap -> segments -> IoU vs glyphs), result in #write-result", true);
+    });
+  }
+
+  function testModeToggles() {
+    // One shared toggle row under the Learn tab serves both the Cards and the
+    // Write sub-mode: Shuffle, All sheets (pool cards from every sheet), and
+    // Short (≤2 words = hanzi cell has at most 2 whitespace-separated words).
+    // All sheets + Short persist to localStorage.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(/id="view-learn"[\s\S]*?id="mode-toggles"[\s\S]*?id="toggle-shuffle"[\s\S]*?toggleShuffleMode\(\)[\s\S]*?id="toggle-all-sheets"[\s\S]*?toggleAllSheetsMode\(\)[\s\S]*?id="toggle-short"[\s\S]*?toggleShortMode\(\)[\s\S]*?id="learn-wrap"/.test(html),
+        "one shared toggle row (Shuffle/All sheets/Short) must sit in the Learn view above the sub-mode content");
+      assert(html.indexOf('id="write-mode-toggles"') === -1 && html.indexOf('id="write-toggle-') === -1,
+        "the Write sub-mode must not have its own toggle row anymore");
+      assert(/id="card-mode-toggles"[\s\S]*?id="toggle-english"[\s\S]*?id="toggle-hanzi"[\s\S]*?id="toggle-pinyin"/.test(html),
+        "the Cards sub-mode keeps its own Show English/Hanzi/Pinyin row");
+      assert(html.indexOf("function allSheetsRows()") !== -1, "allSheetsRows() pooling helper missing");
+      assert(/function learnRows\(\) \{\s*var base = allSheetsOn \? allSheetsRows\(\) : rows;/.test(html),
+        "learnRows must pool all sheets when All sheets is on");
+      assert(/function writeRows\(\) \{\s*var base = allSheetsOn \? allSheetsRows\(\) : rows;/.test(html),
+        "writeRows must pool all sheets when All sheets is on (shared setting)");
+      assert(html.indexOf("function isShortRow(") !== -1 && html.indexOf("split(/\\s+/)") !== -1 && html.indexOf("<= 2") !== -1,
+        "isShortRow must count whitespace-separated hanzi words and keep at most 2");
+      assert((html.match(/shortOn && !isShortRow\(r\)/g) || []).length === 2,
+        "both card pools must apply the shared Short filter");
+      assert(html.indexOf("localStorage.getItem(MODE_PREFS_KEY)") !== -1 && html.indexOf("localStorage.setItem(MODE_PREFS_KEY") !== -1,
+        "the All sheets / Short toggles must persist to localStorage");
+      assert(/loadModePrefs\(\);/.test(html), "loadModePrefs must run at startup");
+      assert(html.indexOf("function shuffleWriteCards(") !== -1 && /if \(isLearn\) \{[\s\S]*?shuffleWriteCards\(\)/.test(html),
+        "the Write sub-mode must shuffle its (possibly all-sheets) pool when Shuffle is on");
+      report("merged learn/write toggles: one shared Shuffle/All sheets/Short row under Learn, ≤2-word short filter on both pools, persisted in localStorage", true);
+    });
+  }
+
+  function testLearnWriteCombined() {
+    // Write is not a top-level tab anymore: the Learn tab hosts a Cards/Write
+    // sub-switcher, and the write canvas lives inside the learn view.
+    return fetch("index.html").then(function (r) { return r.text(); }).then(function (html) {
+      assert(html.indexOf('id="tab-write"') === -1 && html.indexOf('id="view-write"') === -1,
+        "the top-level Write tab must be gone");
+      assert(/id="view-learn"[\s\S]*?id="learn-sub-cards"[\s\S]*?switchLearnSub\('cards'\)[\s\S]*?id="learn-sub-write"[\s\S]*?switchLearnSub\('write'\)/.test(html),
+        "the Learn view must have a Cards/Write sub-switcher wired to switchLearnSub()");
+      assert(/id="view-learn"[\s\S]*?id="write-wrap"[\s\S]*?id="write-canvas"[\s\S]*?id="view-conflicts"/.test(html),
+        "the write canvas must live inside the learn view");
+      assert(html.indexOf("function switchLearnSub(") !== -1 && html.indexOf("function renderLearnSub(") !== -1,
+        "switchLearnSub/renderLearnSub must exist");
+      assert(/function renderLearnSub\(\) \{[\s\S]*?renderLearn\(\)[\s\S]*?renderWrite\(\)/.test(html),
+        "renderLearnSub must dispatch between the cards and the write sub-mode");
+      report("learn+write combined under the Learn tab: Cards/Write sub-switcher, write canvas inside view-learn, no separate Write tab", true);
+    });
+  }
+
   function run() {
     var out = document.getElementById("test-results");
     function render() {
@@ -431,7 +521,11 @@
       ["delete-guard", testDeleteGuard],
       ["rows-relink-after-apply", testRowsRelinkedAfterApply],
       ["update-reload-wired", testUpdateReloadWired],
-      ["sw-network-first-app-code", testSwNetworkFirstForAppCode]
+      ["sw-network-first-app-code", testSwNetworkFirstForAppCode],
+      ["write-guide-overlay", testWriteGuideOverlay],
+      ["write-ocr-check", testWriteOcr],
+      ["mode-toggles", testModeToggles],
+      ["learn-write-combined", testLearnWriteCombined]
     ].forEach(function (t) {
       chain = chain.then(function () {
         return Promise.resolve().then(t[1]).catch(function (e) {
