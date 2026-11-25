@@ -140,6 +140,16 @@
     min-height: 44px;
   }
   .tab-btn.active { background: #fff; color: var(--theme-dark); font-weight: 700; }
+  .learn-subtabs .tab-btn {
+    background: var(--card);
+    color: var(--text);
+    border: 2px solid var(--border);
+  }
+  .learn-subtabs .tab-btn.active {
+    background: #fff;
+    color: var(--theme-dark);
+    border-color: var(--theme);
+  }
   .new-row-btn { background: var(--th-surface); color: var(--theme-dark); font-weight: 700; }
   .sheet-select {
     font-size: 1rem;
@@ -401,7 +411,7 @@
 </div><div id="sync-banner" hidden><span id="sync-msg"></span><button onclick="dismissSyncBanner()">OK</button></div>
 <header>
   <div class="header-left">
-    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.16</span></h1>
+    <h1><span id="app-animal">🐯</span> Maolio <span id="app-version">v6.17</span></h1>
   </div>
   <div class="header-center">
     <select id="sheet-select-header" class="sheet-select" onchange="switchSheet(this.value)" title="Switch sheet"></select>
@@ -529,7 +539,7 @@
 <script>
 "use strict";
 
-var APP_VERSION = "6.16";
+var APP_VERSION = "6.17";
 var APP_BRANCH = (function() {
   var path = window.location.pathname;
   if (path.includes("/dev/") || path.includes("/dev")) {
