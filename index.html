@@ -1530,6 +1530,13 @@ function renderLearn() {
   next.textContent = "Next →";
   next.addEventListener("click", function () { navLearn(1); });
 
+  var practice = document.createElement("button");
+  practice.className = "btn secondary";
+  practice.textContent = "✍ Practice writing";
+  practice.title = "Open the Write sub-tab on this word (OCR check)";
+  practice.disabled = writeRows().indexOf(row) < 0;
+  practice.addEventListener("click", function () { practiceCurrentCard(); });
+
   if (learnRevealed) {
     var say = document.createElement("button");
     say.className = "btn";
@@ -1540,6 +1547,7 @@ function renderLearn() {
   } else {
     controls.appendChild(show);
   }
+  controls.appendChild(practice);
   controls.appendChild(prev);
   controls.appendChild(next);
 }
@@ -1550,6 +1558,23 @@ function navLearn(delta) {
   if (learnIndex < 0) learnIndex = len - 1;
   if (learnIndex >= len) learnIndex = 0;
   learnRevealed = false;
+  renderLearnSub();
+}
+
+function practiceCurrentCard() {
+  var row = learnRows()[getCurrentCardIndex()];
+  if (!row) return;
+  learnSub = "write";
+  resetWritePool();
+  var idx = writeRows().indexOf(row);
+  if (idx >= 0) {
+    if (shuffleOn && writeShuffledIndices.length > 0) {
+      var pos = writeShuffledIndices.indexOf(idx);
+      writeIndex = pos >= 0 ? pos : 0;
+    } else {
+      writeIndex = idx;
+    }
+  }
   renderLearnSub();
 }
 
